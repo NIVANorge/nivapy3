@@ -1,4 +1,6 @@
-# nivapy3: NIVA-specific Python functions for NIVA's JupyterHub
+# nivapy3
+
+## NIVA-specific Python functions for NIVA's JupyterHub
 
 This library was originally part of the `NIVANorge/niva_datasci_toolkit` repository. It contains various Python functions to streamline workflows on NIVA's JupyterHub.
 
