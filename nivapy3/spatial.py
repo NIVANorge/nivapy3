@@ -35,7 +35,7 @@ from shapely.geometry import Point, Polygon, box, shape
 from skimage.morphology import skeletonize
 from tqdm.notebook import tqdm
 
-from . import da, spatial
+from . import da
 
 
 def quickmap(
@@ -2020,7 +2020,7 @@ def catchment_boundary_quickmap(stn_code, cat_gdf, title=None, out_png=None):
     """
     # Get UTM co-ords
     cat_gdf = cat_gdf.copy()
-    cat_gdf = spatial.wgs84_dd_to_utm(cat_gdf)
+    cat_gdf = wgs84_dd_to_utm(cat_gdf)
 
     # Get station and co-ords of interest
     cat = cat_gdf.query("station_code == @stn_code")
