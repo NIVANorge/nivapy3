@@ -1,4 +1,1 @@
-from . import da
-from . import spatial
-from . import plotting
-from . import stats
+from . import da, plotting, spatial, stats

@@ -27,15 +27,15 @@ from osgeo import gdal, ogr, osr
 from osgeo.gdalconst import GA_ReadOnly
 from pyresample.geometry import AreaDefinition
 from rasterio import features
+from rasterstats import zonal_stats
 from scipy import ndimage
 from scipy.interpolate import griddata
 from scipy.spatial import cKDTree as KDTree
 from shapely.geometry import Point, Polygon, box, shape
 from skimage.morphology import skeletonize
 from tqdm.notebook import tqdm
-from rasterstats import zonal_stats
 
-import nivapy3 as nivapy
+from . import da, spatial
 
 
 def quickmap(
@@ -2020,7 +2020,7 @@ def catchment_boundary_quickmap(stn_code, cat_gdf, title=None, out_png=None):
     """
     # Get UTM co-ords
     cat_gdf = cat_gdf.copy()
-    cat_gdf = nivapy.spatial.wgs84_dd_to_utm(cat_gdf)
+    cat_gdf = spatial.wgs84_dd_to_utm(cat_gdf)
 
     # Get station and co-ords of interest
     cat = cat_gdf.query("station_code == @stn_code")
@@ -2151,8 +2151,8 @@ def derive_watershed_boundaries(
     gdf["y_proj"] = gdf["geometry"].y
 
     # Get vassdragsområder
-    eng = nivapy.da.connect_postgis()
-    vass_gdf = nivapy.da.read_postgis("physical", "norway_nve_vassdragomrade_poly", eng)
+    eng = da.connect_postgis()
+    vass_gdf = da.read_postgis("physical", "norway_nve_vassdragomrade_poly", eng)
     vass_gdf = vass_gdf.to_crs(dem_crs)
 
     # Assign points to vassdragsområder
@@ -2304,10 +2304,8 @@ def get_elvis_streams_as_shapes(crs="epsg:25833"):
     Returns
         Tuple of tuples. Geometries for rasterising
     """
-    eng = nivapy.da.connect_postgis()
-    riv_gdf = nivapy.da.read_postgis(
-        "physical", "norway_nve_elvis_river_network_line", eng
-    )
+    eng = da.connect_postgis()
+    riv_gdf = da.read_postgis("physical", "norway_nve_elvis_river_network_line", eng)
     riv_gdf = riv_gdf.to_crs(crs)
     shapes = ((geom, 1) for geom in riv_gdf.geometry)
 
@@ -2628,11 +2626,11 @@ def get_land_cover_for_polygons(
         dissolve_fields = ["klasse", "norsk", "english", id_col]
         lc_crs = "epsg:32633"
 
-    eng = nivapy.da.connect_postgis()
+    eng = da.connect_postgis()
     poly_gdf = poly_gdf.to_crs(lc_crs)
     if full_extent:
         # Perform intersection in one go
-        lc_gdf = nivapy.da.read_postgis(
+        lc_gdf = da.read_postgis(
             "physical",
             dataset_dict[lc_data],
             eng,
@@ -2650,7 +2648,7 @@ def get_land_cover_for_polygons(
         gdf_list = []
         for site_id in poly_gdf[id_col].unique():
             gdf = poly_gdf.query(f"{id_col} == @site_id")
-            lc_gdf = nivapy.da.read_postgis(
+            lc_gdf = da.read_postgis(
                 "physical",
                 dataset_dict[lc_data],
                 eng,

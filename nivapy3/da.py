@@ -25,7 +25,7 @@ from pandas import json_normalize
 from sqlalchemy import create_engine
 from tqdm.notebook import tqdm
 
-import nivapy3 as nivapy
+from . import da, spatial
 
 
 def connect(src="nivabase", db_name=None, port=5432):
@@ -1117,10 +1117,10 @@ def select_resa_stations_in_polygon(poly_vec, id_col, eng):
         Dataframe.
     """
     # Query all NDB stations
-    stn_df = nivapy.da.select_resa_stations(eng)
+    stn_df = da.select_resa_stations(eng)
 
     # Identify point in poly
-    stn_df = nivapy.spatial.identify_point_in_polygon(stn_df, poly_vec, poly_col=id_col)
+    stn_df = spatial.identify_point_in_polygon(stn_df, poly_vec, poly_col=id_col)
 
     # Get just stations within polys
     stn_df.dropna(
@@ -1157,10 +1157,10 @@ def select_ndb_stations_in_polygon(poly_vec, id_col, eng, drop_dups=False):
         Dataframe.
     """
     # Query all NDB stations
-    stn_df = nivapy.da.select_ndb_stations(eng)
+    stn_df = da.select_ndb_stations(eng)
 
     # Identify point in poly
-    stn_df = nivapy.spatial.identify_point_in_polygon(stn_df, poly_vec, poly_col=id_col)
+    stn_df = spatial.identify_point_in_polygon(stn_df, poly_vec, poly_col=id_col)
 
     # Get just stations within polys
     stn_df.dropna(
@@ -1296,7 +1296,7 @@ def postgis_raster_to_geotiff(
         "column": column,
     }
 
-    data, ndv, epsg, extent = nivapy.spatial.read_raster("postgres", pg_dict=pg_dict)
+    data, ndv, epsg, extent = spatial.read_raster("postgres", pg_dict=pg_dict)
 
     if ndv is None:
         ndv = -9999
@@ -1312,7 +1312,7 @@ def postgis_raster_to_geotiff(
     proj4_str = proj.ExportToProj4()
 
     # Write to GeoTiff
-    nivapy.spatial.array_to_gtiff(
+    spatial.array_to_gtiff(
         xmin, ymax, cell_size, out_tif, data, proj4_str, no_data_value=ndv
     )
 
@@ -2176,7 +2176,7 @@ def get_metno_ngcd_aggregated_time_series(
     # Build gdf of points at grid cell centres on a 1 km grid
     # NGCD bounding box in EPSG 3035
     xmin, ymin, xmax, ymax = 4000000, 3410000, 5550000, 5430000
-    pt_df = nivapy.da.create_point_grid(xmin, ymin, xmax, ymax, 1000)
+    pt_df = da.create_point_grid(xmin, ymin, xmax, ymax, 1000)
     pt_gdf = gpd.GeoDataFrame(
         pt_df,
         geometry=gpd.points_from_xy(pt_df["x"], pt_df["y"], crs="epsg:3035"),
@@ -2187,7 +2187,7 @@ def get_metno_ngcd_aggregated_time_series(
     pt_df = pd.DataFrame(pt_gdf[[id_col, "point_id", "x", "y"]])
 
     # Get data for points from API
-    res_df = nivapy.da.get_metno_ngcd_time_series(
+    res_df = da.get_metno_ngcd_time_series(
         pt_df,
         par,
         st_dt,
@@ -2593,7 +2593,7 @@ def get_era5land_cds_api_aggregated_time_series(
     # Build gdf of points at grid cell centres on a 0.1 deg grid
     # World bounding box in EPSG 4326
     xmin, ymin, xmax, ymax = -180, -90, 180, 90
-    pt_df = nivapy.da.create_point_grid(xmin, ymin, xmax, ymax, 0.1)
+    pt_df = da.create_point_grid(xmin, ymin, xmax, ymax, 0.1)
     pt_gdf = gpd.GeoDataFrame(
         pt_df,
         geometry=gpd.points_from_xy(pt_df["x"], pt_df["y"], crs=era5_crs),
