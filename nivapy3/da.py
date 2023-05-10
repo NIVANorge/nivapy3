@@ -1999,7 +1999,7 @@ def get_metno_ngcd_time_series(
     xcol="longitude",
     ycol="latitude",
     crs="epsg:4326",
-    ngcd_version="21.09",
+    ngcd_version="23.03",
     ngcd_type="type2",
 ):
     """Query time series from the NGCD based on points provided in a dataframe.
@@ -2025,7 +2025,7 @@ def get_metno_ngcd_time_series(
         crs:          Str. A valid co-ordinate reference system for Geopandas. Most easily
                       expressed as e.g. 'epsg:4326' (for WGS84 lat/lon) or 'epsg:25833'
                       (ETRS89/UTM zone 33N) etc.
-        ngcd_version: Str. Default '21.09'. Version of NGCD to use. See
+        ngcd_version: Str. Default '23.03'. Version of NGCD to use. See
                           https://thredds.met.no/thredds/catalog/ngcd/catalog.html
         ngcd_type:    Str. Either 'type1' or 'type2'. Default 'type2'. Interpolation method to use.
                       See
@@ -2119,7 +2119,7 @@ def get_metno_ngcd_aggregated_time_series(
     st_dt,
     end_dt,
     id_col="station_code",
-    ngcd_version="21.09",
+    ngcd_version="23.03",
     ngcd_type="type2",
 ):
     """Query time series from the NGCD, aggregating values over polygons provided in a
@@ -2140,7 +2140,7 @@ def get_metno_ngcd_aggregated_time_series(
         end_dt:       Str. End date of interest 'YYYY-MM-DD'
         id_col:       Str. Name of column in 'poly_gdf' containing a unique ID for each location
                       of interest
-        ngcd_version: Str. Default '21.09'. Version of NGCD to use. See
+        ngcd_version: Str. Default '23.03'. Version of NGCD to use. See
                           https://thredds.met.no/thredds/catalog/ngcd/catalog.html
         ngcd_type:    Str. Either 'type1' or 'type2'. Default 'type2'. Interpolation method to use.
                       See
