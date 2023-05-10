@@ -2101,7 +2101,7 @@ def get_metno_ngcd_time_series(
             msg = str(e) + msg
             raise OSError(msg)
         else:
-            raise (e)
+            raise
 
     print("Extracting values for points. This may take a while...")
     x_indexer = xr.DataArray(gdf["x_proj"], dims=[id_col], coords=[gdf[id_col]])
