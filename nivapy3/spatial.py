@@ -1126,7 +1126,7 @@ def zonal_statistics_old(
             # Get cell counts for each category
             keys, counts = np.unique(masked.compressed(), return_counts=True)
             pixel_count = dict(
-                zip([np.asscalar(k) for k in keys], [np.asscalar(c) for c in counts])
+                zip([int(k) for k in keys], [int(c) for c in counts])
             )
 
             feature_stats = dict(pixel_count)

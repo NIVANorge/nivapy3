@@ -937,7 +937,7 @@ def extract_resa_discharge(stn_id, st_dt, end_dt, engine, plot=False):
     assert len(dis_df) == 1, "Error identifying discharge station."
 
     # Get ID for discharge station
-    dis_stn_id = np.asscalar(dis_df["dis_station_id"].iloc[0])
+    dis_stn_id = int(dis_df["dis_station_id"].iloc[0])
 
     # Get catchment areas
     # Discharge station
