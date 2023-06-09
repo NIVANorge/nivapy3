@@ -991,8 +991,8 @@ def zonal_statistics(
 
     # Move 'geometry' to end
     cols = gdf.columns.tolist()
-    cols.remove(cat_gdf.geometry.name)
-    cols.append(cat_gdf.geometry.name)
+    cols.remove(gdf.geometry.name)
+    cols.append(gdf.geometry.name)
     gdf = gdf[cols]
 
     return gdf
