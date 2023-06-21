@@ -2130,11 +2130,11 @@ def derive_watershed_boundaries(
             temp_fold, (str)
         ), "'temp_fold' is required when 'buffer_km' is specified."
 
-        shared_path = Path("/home/jovyan/shared")
+        shared_path = Path("/home/jovyan/shared/common")
         child_path = Path(temp_fold)
         assert (
             shared_path in child_path.parents
-        ), "'temp_fold' must be a folder on the 'shared' drive."
+        ), "'temp_fold' must be a folder on the 'shared/common' drive."
 
     if temp_fold:
         assert buffer_km, "'buffer_km' is required when 'temp_fold' is specified."
@@ -2175,21 +2175,21 @@ def derive_watershed_boundaries(
         if method == "pysheds":
             dirmap = (1, 2, 3, 4, 5, 6, 7, 8)
             vassom_fdir_path = (
-                f"/home/jovyan/shared/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
+                f"/home/jovyan/shared/common/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
                 f"/by_vassom/flow_direction/vassom_{vassom}_{dem_res_m}m_fdir.tif"
             )
             vassom_facc_path = (
-                f"/home/jovyan/shared/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
+                f"/home/jovyan/shared/common/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
                 f"/by_vassom/flow_accumulation/vassom_{vassom}_{dem_res_m}m_facc.tif"
             )
         elif method == "wbt":
             dirmap = (128, 1, 2, 4, 8, 16, 32, 64)
             vassom_fdir_path = (
-                f"/home/jovyan/shared/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
+                f"/home/jovyan/shared/common/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
                 f"/by_vassom/wbt_fdir/vassom_{vassom}_{dem_res_m}m_fdir.tif"
             )
             vassom_facc_path = (
-                f"/home/jovyan/shared/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
+                f"/home/jovyan/shared/common/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
                 f"/by_vassom/wbt_facc/vassom_{vassom}_{dem_res_m}m_facc.tif"
             )
         else:

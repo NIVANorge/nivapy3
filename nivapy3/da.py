@@ -103,7 +103,7 @@ def connect_postgis(
     admin=False,
     user="jovyan",
     password="joyvan_ro_pw",
-    host="localhost",
+    host="postgis",
     port=5432,
     database="general",
 ):
@@ -2324,11 +2324,11 @@ def get_era5land_cds_api_gridded(
         ymin < ymax
     ), "'xmin' and 'ymin' must be smaller than 'xmax' and 'ymax'."
 
-    shared_path = Path("/home/jovyan/shared")
+    shared_path = Path("/home/jovyan/shared/common")
     child_path = Path(out_nc_path)
     assert (
         shared_path in child_path.parents
-    ), "'out_nc_path' must be a folder on the 'shared' drive (data volumes may be large)."
+    ), "'out_nc_path' must be a folder on the 'shared/common' drive (data volumes may be large)."
 
     assert out_nc_path[-3:] == ".nc", "'out_nc_path' must be a .nc file."
 
