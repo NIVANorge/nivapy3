@@ -998,28 +998,6 @@ def zonal_statistics(
     return gdf
 
 
-def rebin_array(a, scale_factor):
-    """Resample an array to a new shape using the nearest neighbour technique.
-
-    Args:
-        a:            Array to resample.
-        scale_factor: Rescaling factor calculated as
-                      orig_side_len / desired_side_len
-
-    Returns:
-        Resampled array.
-    """
-    # Calculate new shape for array
-    newshape = tuple([i * scale_factor for i in a.shape])
-
-    # Perform resampling
-    slices = [slice(0, old, float(old) / new) for old, new in zip(a.shape, newshape)]
-    coordinates = np.mgrid[slices]
-    indices = coordinates.astype("i")
-
-    return a[tuple(indices)]
-
-
 def shp_to_ras(in_shp, out_tif, snap_tif, attrib, ndv, data_type, fmt="GTiff"):
     """Converts a shapefile to a raster with values taken from the 'attrib' field.
     The 'snap_tif' is used to set the resolution and extent of the output raster.
