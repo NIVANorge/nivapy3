@@ -1657,57 +1657,6 @@ def get_natural_earth_country_names():
     return country_list
 
 
-def downsample_raster(ds, scale_factor):
-    """Downsample a single-band raster to a lower resulution. First read the raster
-    with xarray using
-
-        ds = xr.open_rasterio('path/to/raster')
-
-    For the moment, scale_factor must be an odd integer. For example, if the
-    original raster has a cell size of 1 and scale factor is 5, the downsampled
-    raster will have a cell size of 5.
-
-    Args:
-        ds:           DataArray. Single band xarray data array
-        scale_factor: Int. Odd integer
-
-    Returns:
-        DataArray. Single band xarray DataArray with larger cell size.
-    """
-    assert isinstance(scale_factor, int), "'scale_factor' must be an odd integer."
-
-    if scale_factor % 2 == 0:
-        # Even
-        raise ValueError("'scale_factor' must be an odd integer.")
-    else:
-        # Downsample
-        rebinned = rebin_array(ds.values, 1 / scale_factor)
-        if len(rebinned.shape) == 2:
-            rebinned = rebinned[np.newaxis, :]
-        x = ds["x"][::scale_factor]
-        y = ds["y"][::scale_factor]
-        band = np.array([1])
-
-        rebinned_ds = xr.DataArray(
-            rebinned, coords=[band, y, x], dims=["band", "y", "x"]
-        )
-
-        # Add metadata
-        rebinned_ds.attrs["crs"] = ds.attrs["crs"]
-        rebinned_ds.attrs["is_tiled"] = ds.attrs["is_tiled"]
-        rebinned_ds.attrs["nodatavals"] = ds.attrs["nodatavals"]
-
-        trans = list(ds.attrs["transform"])
-        trans[0] = trans[0] * scale_factor
-        trans[4] = trans[4] * scale_factor
-        trans = tuple(trans)
-        rebinned_ds.attrs["transform"] = trans
-
-        rebinned_ds.attrs["res"] = tuple([i * scale_factor for i in ds.attrs["res"]])
-
-        return rebinned_ds
-
-
 def get_features(gdf):
     """Helper function for clip_raster_to_gdf(). Converts 'gdf' to the format required
     by rasterio.mask.
