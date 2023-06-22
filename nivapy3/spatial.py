@@ -22,6 +22,7 @@ import pandas as pd
 import pyproj
 import rasterio
 import rasterio.mask
+import rioxarray as rio
 import xarray as xr
 from folium.plugins import FastMarkerCluster, MarkerCluster
 from osgeo import gdal, ogr, osr
@@ -1507,7 +1508,7 @@ def plot_raster(
     ), "'ds_or_path' must be a file path or an xarray DataArray."
 
     if isinstance(ds_or_path, str):
-        ds = xr.open_rasterio(ds_or_path)
+        ds = rio.open_rasterio(ds_or_path)
     else:
         ds = ds_or_path
 
@@ -1515,11 +1516,8 @@ def plot_raster(
     fig = plt.figure(figsize=figsize)
 
     # Build area definition
-    proj_string = ds.attrs["crs"]
-
-    x_cell_size = ds.attrs["res"][0]
-    y_cell_size = ds.attrs["res"][1]
-
+    proj_string = ds.rio.crs.to_proj4()
+    x_cell_size, y_cell_size = tuple(abs(i) for i in ds.rio.resolution())
     xmin = ds["x"].values.min() - (x_cell_size / 2)
     xmax = ds["x"].values.max() + (x_cell_size / 2)
     ymin = ds["y"].values.min() - (y_cell_size / 2)
@@ -1530,7 +1528,6 @@ def plot_raster(
         crs = ccrs.PlateCarree()
         ax = fig.add_subplot(1, 1, 1, projection=crs)
         ax.set_extent([xmin, xmax, ymin, ymax], crs=crs)
-
     else:
         area_extent = (xmin, ymin, xmax, ymax)
         area_def = AreaDefinition(
@@ -1546,7 +1543,7 @@ def plot_raster(
         ax = fig.add_subplot(1, 1, 1, projection=crs)
 
     # Mask no data
-    ndv = ds.attrs["nodatavals"][0]
+    ndv = ds.rio.nodata
     ds2 = ds.where(ds != ndv)
 
     # Plot
