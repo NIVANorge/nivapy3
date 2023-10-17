@@ -9,6 +9,7 @@ import subprocess
 import time
 import warnings
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import cdsapi
@@ -1830,43 +1831,49 @@ def get_nve_gts_api_time_series(
             x = int(row["x_proj"])
             y = int(row["y_proj"])
             url = f"http://gts.nve.no/api/GridTimeSeries/{x}/{y}/{st_dt}/{end_dt}/{par}.json"
-            request = Request(url)
-            response = urlopen(request)
-            content = json.loads(response.read().decode("utf-8"))
+            try:
+                request = Request(url)
+                response = urlopen(request)
+                content = json.loads(response.read().decode("utf-8"))
 
-            par_name = content["FullName"]
-            ndv = content["NoDataValue"]
-            unit = content["Unit"]
-            time_res = content["TimeResolution"]
-            alt = content["Altitude"]
-            data = content["Data"]
-            ser_start = pd.to_datetime(content["StartDate"], dayfirst=True)
-            ser_end = pd.to_datetime(content["EndDate"], dayfirst=True)
+                par_name = content["FullName"]
+                ndv = content["NoDataValue"]
+                unit = content["Unit"]
+                time_res = content["TimeResolution"]
+                alt = content["Altitude"]
+                data = content["Data"]
+                ser_start = pd.to_datetime(content["StartDate"], dayfirst=True)
+                ser_end = pd.to_datetime(content["EndDate"], dayfirst=True)
 
-            # Generate range of dates
-            if time_res == 1440:
-                dates = pd.date_range(ser_start, ser_end, freq="D")
-            else:
-                raise ValueError("Frequency not yet implemented.")
+                # Generate range of dates
+                if time_res == 1440:
+                    dates = pd.date_range(ser_start, ser_end, freq="D")
+                else:
+                    raise ValueError("Frequency not yet implemented.")
 
-            assert len(dates) == len(data), "Mismatch between length of dates and data."
+                assert len(dates) == len(
+                    data
+                ), "Mismatch between length of dates and data."
 
-            df = pd.DataFrame(
-                {
-                    id_col: loc_id,
-                    "x_utm_33n": x,
-                    "y_utm_33n": y,
-                    "altitude_m": alt,
-                    "par": par,
-                    "full_name": par_name,
-                    "unit": unit,
-                    "time_resolution": time_res,
-                    "datetime": dates,
-                    "value": data,
-                }
-            )
-            df.loc[df["value"] == ndv, "value"] = np.nan
-            df_list.append(df)
+                df = pd.DataFrame(
+                    {
+                        id_col: loc_id,
+                        "x_utm_33n": x,
+                        "y_utm_33n": y,
+                        "altitude_m": alt,
+                        "par": par,
+                        "full_name": par_name,
+                        "unit": unit,
+                        "time_resolution": time_res,
+                        "datetime": dates,
+                        "value": data,
+                    }
+                )
+                df.loc[df["value"] == ndv, "value"] = np.nan
+                df_list.append(df)
+
+            except HTTPError:
+                print(f"WARNING: No data for site '{loc_id}'.")
 
     df = pd.concat(df_list, axis="rows")
 
