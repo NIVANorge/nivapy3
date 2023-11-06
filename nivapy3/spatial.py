@@ -46,7 +46,7 @@ def quickmap(
     lat_col="latitude",
     popup=None,
     cluster=False,
-    tiles="Stamen Terrain",
+    tiles="OpenStreetMap",
     aerial_imagery=False,
     kartverket=False,
     layer_name="Stations",
@@ -65,7 +65,7 @@ def quickmap(
                             - 'OpenStreetMap'
                             - 'Mapbox Bright' (Limited levels of zoom for free tiles)
                             - 'Mapbox Control Room' (Limited levels of zoom for free tiles)
-                            - 'Stamen' (Terrain, Toner, and Watercolor)
+                            - 'Stamen' (Terrain, Toner, and Watercolor; must pass API key)
                             - 'Cloudmade' (Must pass API key)
                             - 'Mapbox' (Must pass API key)
                             - 'CartoDB' (positron and dark_matter)
@@ -191,7 +191,7 @@ def plot_vector(vec_path, fill_color="yellow", line_color="black", fill_opacity=
     gjson = gdf.to_json()
 
     # Map
-    m = folium.Map(location=[65, 10], zoom_start=4, tiles="Stamen Terrain")
+    m = folium.Map(location=[65, 10], zoom_start=4, tiles="OpenStreetMap")
 
     m.choropleth(
         geo_data=gjson,
@@ -219,7 +219,7 @@ def plot_polygons_overlay_points(
     pts_lon_col="longitude",
     pts_lat_col="latitude",
     pts_popup=None,
-    tiles="Stamen Terrain",
+    tiles="OpenStreetMap",
 ):
     """Plot a polygon vector dataset (e.g. .shp, .geojson) and overlay it with
     a point dataset.
@@ -244,7 +244,7 @@ def plot_polygons_overlay_points(
                              - 'OpenStreetMap'
                              - 'Mapbox Bright' (Limited levels of zoom for free tiles)
                              - 'Mapbox Control Room' (Limited levels of zoom for free tiles)
-                             - 'Stamen' (Terrain, Toner, and Watercolor)
+                             - 'Stamen' (Terrain, Toner, and Watercolor; must pass API key)
                              - 'Cloudmade' (Must pass API key)
                              - 'Mapbox' (Must pass API key)
                              - 'CartoDB' (positron and dark_matter)
@@ -432,7 +432,7 @@ def choropleth_from_gdf(
     gdf,
     val_col,
     geom="geom",
-    tiles="Stamen Terrain",
+    tiles="OpenStreetMap",
     fill_color="YlOrRd",
     fill_opacity=1,
     line_opacity=1,
@@ -449,7 +449,7 @@ def choropleth_from_gdf(
                         - 'OpenStreetMap'
                         - 'Mapbox Bright' (Limited levels of zoom for free tiles)
                         - 'Mapbox Control Room' (Limited levels of zoom for free tiles)
-                        - 'Stamen' (Terrain, Toner, and Watercolor)
+                        - 'Stamen' (Terrain, Toner, and Watercolor; must pass API key)
                         - 'Cloudmade' (Must pass API key)
                         - 'Mapbox' (Must pass API key)
                         - 'CartoDB' (positron and dark_matter)
