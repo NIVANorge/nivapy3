@@ -2464,3 +2464,56 @@ def get_land_cover_for_polygons(
         lc_gdf = lc_gdf[cols]
 
     return lc_gdf
+
+
+def intercatchments_from_catchments(gdf, id_col):
+    """(Sub-)Catchment boundaries derived for outflow points will often overlap.
+    In many cases, we want non-overlapping "intercatchments" rather than true
+    catchments.
+
+    This function generates intercatchments from true sub-catchments.
+
+    NOTE: This function is rough and needs proper testing.
+
+    Args
+        gdf:    Geodataframe. Polygons of "true" overlapping (sub-)catchments
+        id_col: Str. Name of column in 'gdf' containing a unique ID for each
+                sub-catchment.
+
+    Returns
+        Geodataframe of non-overlapping intercatchments.
+    """
+    assert all(
+        gdf.geometry.geom_type.isin(["Polygon", "MultiPolygon"])
+    ), "'gdf' must only contain Polygons or MultiPolygons."
+    assert gdf.crs is not None, "'gdf' does not have a valid CRS."
+    assert gdf[id_col].is_unique, f"Column '{id_col}' is not unique."
+
+    gdf = gdf.copy()
+
+    # Sort by area from largest to smallest
+    gdf["original_order"] = np.arange(len(gdf))
+    gdf["area_temp_km2"] = gdf.to_crs({"proj": "cea"}).geometry.area / 1e6
+    gdf.sort_values("area_temp_km2", ascending=False, inplace=True)
+
+    # Create a new GeoDataFrame to store the result
+    inter_gdf = gpd.GeoDataFrame(columns=gdf.columns)
+
+    # Clip each polygon with all those that are smaller
+    for i, (index, row) in enumerate(gdf.iterrows()):
+        cat_poly = gdf.iloc[i].geometry
+        small_polys = gdf.iloc[i + 1 :].geometry
+
+        # Subtract the smaller overlapping areas from the current polygon
+        for small_poly in small_polys:
+            cat_poly = cat_poly.difference(small_poly)
+
+        # Assign the resulting polygon to the row's geometry
+        row.geometry = cat_poly
+        inter_gdf = pd.concat([inter_gdf, gpd.GeoDataFrame(row).T], ignore_index=True)
+
+    # Tidy
+    inter_gdf = inter_gdf.sort_values(by="original_order").reset_index(drop=True)
+    inter_gdf = inter_gdf.drop(columns=["area_temp_km2", "original_order"])
+
+    return inter_gdf
