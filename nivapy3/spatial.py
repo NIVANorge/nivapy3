@@ -2515,5 +2515,6 @@ def intercatchments_from_catchments(gdf, id_col):
     # Tidy
     inter_gdf = inter_gdf.sort_values(by="original_order").reset_index(drop=True)
     inter_gdf = inter_gdf.drop(columns=["area_temp_km2", "original_order"])
+    inter_gdf.crs = gdf.crs
 
     return inter_gdf
