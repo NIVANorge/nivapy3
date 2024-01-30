@@ -25,6 +25,7 @@ import rasterio.mask
 import rioxarray as rio
 import xarray as xr
 from folium.plugins import FastMarkerCluster, MarkerCluster
+from folium import Choropleth
 from osgeo import gdal, ogr, osr
 from osgeo.gdalconst import GA_ReadOnly
 from pyresample.geometry import AreaDefinition
@@ -449,7 +450,6 @@ def choropleth_from_gdf(
                         - 'OpenStreetMap'
                         - 'Mapbox Bright' (Limited levels of zoom for free tiles)
                         - 'Mapbox Control Room' (Limited levels of zoom for free tiles)
-                        - 'Stamen' (Terrain, Toner, and Watercolor; must pass API key)
                         - 'Cloudmade' (Must pass API key)
                         - 'Mapbox' (Must pass API key)
                         - 'CartoDB' (positron and dark_matter)
@@ -486,7 +486,8 @@ def choropleth_from_gdf(
     # Map
     m = folium.Map(location=[65, 10], zoom_start=4, tiles=tiles)
 
-    m.choropleth(
+    # Create choropleth
+    Choropleth(
         geo_data=gjson,
         data=data,
         columns=[idx, val_col],
@@ -495,7 +496,7 @@ def choropleth_from_gdf(
         fill_opacity=fill_opacity,
         line_opacity=line_opacity,
         legend_name=legend_name,
-    )
+    ).add_to(m)
 
     return m
 
