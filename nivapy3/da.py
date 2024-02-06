@@ -1627,7 +1627,7 @@ def get_nve_hydapi_stations(api_key=None):
     return df
 
 
-def query_nve_hydapi(stn_ids, par_ids, st_dt, end_dt, resolution=1440, api_key=None):
+def query_nve_hydapi(stn_ids, par_ids, st_dt, end_dt, resolution=1440, api_key=None, series_ver=None):
     """Query data via NVE's Hydrological API (https://hydapi.nve.no/UserDocumentation/).
 
     Args:
@@ -1642,6 +1642,8 @@ def query_nve_hydapi(stn_ids, par_ids, st_dt, end_dt, resolution=1440, api_key=N
                     directly to the function. Instead, create a file containing your key and
                     store it in your HOME directory. See docstring for authenticate_nve_hydapi()
                     for further details
+        series_ver: Int or None. For series with multiple versions, the desired version can be 
+                    specified. If None, returns the version with the most recent data.
     """
     assert dt.datetime.strptime(st_dt, "%Y-%m-%d") < dt.datetime.strptime(
         end_dt, "%Y-%m-%d"
@@ -1652,6 +1654,8 @@ def query_nve_hydapi(stn_ids, par_ids, st_dt, end_dt, resolution=1440, api_key=N
         api_key = authenticate_nve_hydapi()
 
     baseurl = "https://hydapi.nve.no/api/v1/Observations?StationId={stns}&Parameter={pars}&ResolutionTime={resolution}&ReferenceTime={st_dt}/{end_dt}"
+    if series_ver:
+        base_url += f"&VersionNumber={series_ver}"
 
     par_ids = [str(i) for i in par_ids]
     stns = ",".join(stn_ids)
