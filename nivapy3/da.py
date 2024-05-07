@@ -13,13 +13,12 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import cdsapi
-import cx_Oracle
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sn
 import shapely
+import sqlalchemy
 import xarray as xr
 from osgeo import gdal, osr
 from pandas import json_normalize
@@ -73,26 +72,18 @@ def connect(src="nivabase", db_name=None, port=5432):
 
     if src == "nivabase":
         conn_str = (
-            r"oracle+cx_oracle://%s:%s@DBORA-NIVA-PROD01.NIVA.CORP:1555/NIVABPRD"
-            % (
-                user,
-                pw,
-            )
+            f"oracle+cx_oracle://{user}:{pw}@DBORA-NIVA-PROD01.NIVA.CORP:1555/NIVABPRD"
         )
     else:
-        conn_str = r"postgresql+psycopg2://%s:%s@host.docker.internal:%s/%s" % (
-            user,
-            pw,
-            port,
-            db_name,
+        conn_str = (
+            f"postgresql+psycopg2://{user}:{pw}@host.docker.internal:{port}/{db_name}"
         )
 
-    # Create connection
+    # Create and test connection
     try:
         engine = create_engine(conn_str)
-        conn = engine.connect()
-        print("Connection successful.")
-
+        with engine.connect() as connection:
+            print("Connection successful.")
         return engine
 
     except Exception as e:
@@ -134,11 +125,11 @@ def connect_postgis(
     # Build connection string
     conn_str = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}"
 
-    # Create connection
+    # Create and test connection
     try:
         engine = create_engine(conn_str)
-        conn = engine.connect()
-        print("Connection successful.")
+        with engine.connect() as connection:
+            print("Connection successful.")
 
         return engine
 
@@ -167,7 +158,8 @@ def select_resa_projects(engine):
         "FROM resa2.projects "
         "ORDER BY project_id"
     )
-    df = pd.read_sql(sql, engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, connection)
 
     print("%s projects in the RESA database." % len(df))
 
@@ -192,7 +184,8 @@ def select_ndb_projects(engine):
         "FROM nivadatabase.projects "
         "ORDER BY project_id"
     )
-    df = pd.read_sql(sql, engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, connection)
 
     print("%s projects in the NIVADATABASE." % len(df))
 
@@ -220,7 +213,8 @@ def select_resa_stations(engine):
         "FROM resa2.stations "
         "ORDER BY station_id"
     )
-    df = pd.read_sql(sql, engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, connection)
 
     print("%s stations in the RESA database." % len(df))
 
@@ -260,7 +254,8 @@ def select_ndb_stations(engine):
         "AND b.geom_ref_id     = d.sample_point_id "
         "ORDER BY a.station_id"
     )
-    df = pd.read_sql(sql, engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, connection)
 
     print("%s stations in the NIVADATABASE." % len(df))
 
@@ -294,8 +289,8 @@ def select_resa_project_stations(project_list, engine):
         "  SELECT station_id FROM resa2.projects_stations "
         "  WHERE project_id IN (%s))" % bind_pars
     )
-
-    df = pd.read_sql(sql, con=engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, con=connection)
 
     return df
 
@@ -351,7 +346,8 @@ def select_ndb_project_stations(proj_df, engine, drop_dups=False):
         "AND b.geom_ref_id     = d.sample_point_id "
         "ORDER BY a.station_id" % bind_pars
     )
-    df = pd.read_sql(sql, con=engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, connection)
 
     # Drop duplictaes, if desired
     if drop_dups:
@@ -407,9 +403,9 @@ def select_resa_station_parameters(stn_df, st_dt, end_dt, engine):
         "ORDER BY parameter_name, "
         "  unit" % bind_pars
     )
-
     par_dict = {"end_dt": end_dt, "st_dt": st_dt}
-    df = pd.read_sql(sql, params=par_dict, con=engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, params=par_dict, con=connection)
 
     print("%s parameters available for the selected stations and dates." % len(df))
 
@@ -465,7 +461,8 @@ def select_ndb_station_parameters(stn_df, st_dt, end_dt, engine):
     )
 
     par_dict = {"end_dt": end_dt, "st_dt": st_dt}
-    df = pd.read_sql(sql, params=par_dict, con=engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, params=par_dict, con=connection)
 
     print("%s parameters available for the selected stations and dates." % len(df))
 
@@ -555,7 +552,8 @@ def select_resa_water_chemistry(
     )
 
     par_dict = {"end_dt": end_dt, "st_dt": st_dt}
-    df = pd.read_sql(sql, params=par_dict, con=engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, params=par_dict, con=connection)
 
     # Drop exact duplicates (i.e. including value)
     df.drop_duplicates(
@@ -772,9 +770,9 @@ def select_ndb_water_chemistry(
         "AND sample_date    >= :st_dt "
         "AND sample_date    <= :end_dt" % (bind_stns, bind_pars)
     )
-
     par_dict = {"end_dt": end_dt, "st_dt": st_dt}
-    df = pd.read_sql(sql, params=par_dict, con=engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, params=par_dict, con=connection)
 
     # Drop exact duplicates (i.e. including value)
     df.drop_duplicates(
@@ -925,16 +923,18 @@ def extract_resa_discharge(stn_id, st_dt, end_dt, engine, plot=False):
         returns a tuple (q_df, figure object)
     """
     # Check stn is valid
-    sql = "SELECT * FROM resa2.stations " "WHERE station_id = :stn_id"
-    stn_df = pd.read_sql_query(sql, params={"stn_id": stn_id}, con=engine)
+    sql = "SELECT * FROM resa2.stations WHERE station_id = :stn_id"
+    with engine.connect() as connection:
+        stn_df = pd.read_sql_query(sql, params={"stn_id": stn_id}, con=connection)
     assert len(stn_df) == 1, "Error in station code."
 
     # Get station_code
     stn_code = stn_df["station_code"].iloc[0]
 
     # Check a discharge station is defined for this WC station
-    sql = "SELECT * FROM resa2.default_dis_stations " "WHERE station_id = :stn_id"
-    dis_df = pd.read_sql_query(sql, params={"stn_id": stn_id}, con=engine)
+    sql = "SELECT * FROM resa2.default_dis_stations WHERE station_id = :stn_id"
+    with engine.connect() as connection:
+        dis_df = pd.read_sql_query(sql, params={"stn_id": stn_id}, con=connection)
     assert len(dis_df) == 1, "Error identifying discharge station."
 
     # Get ID for discharge station
@@ -946,7 +946,10 @@ def extract_resa_discharge(stn_id, st_dt, end_dt, engine, plot=False):
         "SELECT area FROM resa2.discharge_stations "
         "WHERE dis_station_id = :dis_stn_id"
     )
-    area_df = pd.read_sql_query(sql, params={"dis_stn_id": dis_stn_id}, con=engine)
+    with engine.connect() as connection:
+        area_df = pd.read_sql_query(
+            sql, params={"dis_stn_id": dis_stn_id}, con=connection
+        )
     dis_area = area_df["area"].iloc[0]
 
     # Chemistry station
@@ -961,11 +964,12 @@ def extract_resa_discharge(stn_id, st_dt, end_dt, engine, plot=False):
         "AND xdate >= :st_dt "
         "AND xdate <= :end_dt"
     )
-    q_df = pd.read_sql_query(
-        sql,
-        params={"dis_stn_id": dis_stn_id, "st_dt": st_dt, "end_dt": end_dt},
-        con=engine,
-    )
+    with engine.connect() as connection:
+        q_df = pd.read_sql_query(
+            sql,
+            params={"dis_stn_id": dis_stn_id, "st_dt": st_dt, "end_dt": end_dt},
+            con=connection,
+        )
 
     q_df.columns = ["date", "flow_m3/s"]
     q_df.index = q_df["date"]
@@ -994,7 +998,7 @@ def extract_resa_discharge(stn_id, st_dt, end_dt, engine, plot=False):
         return q_df
 
 
-def gdf_to_postgis(gdf, table_name, schema, con, sp_index, create_pk=True, **kwargs):
+def gdf_to_postgis(gdf, table_name, schema, eng, sp_index, create_pk=True, **kwargs):
     """Writes a geodataframe to a postgis database. Adapted from:
 
            https://github.com/geopandas/geopandas/pull/440
@@ -1040,19 +1044,20 @@ def gdf_to_postgis(gdf, table_name, schema, con, sp_index, create_pk=True, **kwa
         geom_type = list(geom_types)[0].upper()
 
         # Write to db
-        temp_gdf.to_sql(table_name, con, schema=schema, **kwargs)
-        sql = (
-            "ALTER TABLE {schema}.{table_name} "
-            "ALTER COLUMN geom TYPE geometry({geom_type}, {epsg}) "
-            "USING ST_SetSRID(geom, {epsg})"
-        )
-        sql_args = {
-            "table_name": table_name,
-            "schema": schema,
-            "geom_type": geom_type,
-            "epsg": epsg,
-        }
-        con.execute(sql.format(**sql_args))
+        with eng.connect() as conn:
+            temp_gdf.to_sql(table_name, conn, schema=schema, **kwargs)
+            sql = (
+                "ALTER TABLE {schema}.{table_name} "
+                "ALTER COLUMN geom TYPE geometry({geom_type}, {epsg}) "
+                "USING ST_SetSRID(geom, {epsg})"
+            )
+            sql_args = {
+                "table_name": table_name,
+                "schema": schema,
+                "geom_type": geom_type,
+                "epsg": epsg,
+            }
+            conn.execute(sql.format(**sql_args))
 
     elif geom_types in [
         set(["Point", "MultiPoint"]),
@@ -1071,19 +1076,20 @@ def gdf_to_postgis(gdf, table_name, schema, con, sp_index, create_pk=True, **kwa
         geom_type = geom_type[0].upper()
 
         # Write to db
-        temp_gdf.to_sql(table_name, con, schema=schema, **kwargs)
-        sql = (
-            "ALTER TABLE {schema}.{table_name} "
-            "ALTER COLUMN geom TYPE geometry({geom_type}, {epsg}) "
-            "USING ST_Multi(ST_SetSRID(geom, {epsg}))"
-        )
-        sql_args = {
-            "table_name": table_name,
-            "schema": schema,
-            "geom_type": geom_type,
-            "epsg": epsg,
-        }
-        con.execute(sql.format(**sql_args))
+        with eng.connect() as conn:
+            temp_gdf.to_sql(table_name, conn, schema=schema, **kwargs)
+            sql = (
+                "ALTER TABLE {schema}.{table_name} "
+                "ALTER COLUMN geom TYPE geometry({geom_type}, {epsg}) "
+                "USING ST_Multi(ST_SetSRID(geom, {epsg}))"
+            )
+            sql_args = {
+                "table_name": table_name,
+                "schema": schema,
+                "geom_type": geom_type,
+                "epsg": epsg,
+            }
+            conn.execute(sql.format(**sql_args))
 
     else:
         raise ValueError(
@@ -1095,13 +1101,15 @@ def gdf_to_postgis(gdf, table_name, schema, con, sp_index, create_pk=True, **kwa
     if sp_index:
         sql = "CREATE INDEX {idx_name} " "ON {schema}.{table_name} " "USING GIST (geom)"
         sql_args = {"table_name": table_name, "schema": schema, "idx_name": sp_index}
-        con.execute(sql.format(**sql_args))
+        with eng.connect() as conn:
+            conn.execute(sql.format(**sql_args))
 
     # Add primary key if required
     if create_pk:
         sql = "ALTER TABLE {schema}.{table_name} " "ADD COLUMN id SERIAL PRIMARY KEY"
         sql_args = {"table_name": table_name, "schema": schema}
-        con.execute(sql.format(**sql_args))
+        with eng.connect() as conn:
+            conn.execute(sql.format(**sql_args))
 
 
 def select_resa_stations_in_polygon(poly_vec, id_col, eng):
@@ -1215,9 +1223,9 @@ def postgis_raster_to_array(eng, pg_ras, schema="public", band=1):
     )
 
     # What is pg_ras
-    if isinstance(pg_ras, sqlalchemy.engine.result.ResultProxy):
+    if isinstance(pg_ras, sqlalchemy.engine.ResultProxy):
         # Already have raster 'result' obj
-        ras = pg_res
+        res = pg_ras
     elif isinstance(pg_ras, str):
         # User wants to select an entire raster
         # Build query
@@ -1271,21 +1279,21 @@ def postgis_raster_to_geotiff(
     dbname, host, port, schema, table, out_tif, column="rast", band=1, flip=False
 ):
     """Convert a PostGIS raster dataset to a GeoTiff. You will be asked to
-        enter a user name and password.
+                        enter a user name and password.
 
-    Args:
-        dbname:  Str. Name of db
-        host:    Str. Hostname. Use 'host.docker.internal' for the Docker host
-        port:    Int. Port number for db connection
-        schema:  Str. Name of schema
-        table:   Str. Name of table
-        out_tif: Raw str. Path for GeoTiff to create
-        column:  Str. Name of 'raster' column in db table
-        band:    Int. Band to read
+                    Args:
+                        dbname:  Str. Name of db
+                        host:    Str. Hostname. Use 'host.docker.internal' for the Docker host
+                        port:    Int. Port number for db connection
+                        schema:  Str. Name of schema
+                        table:   Str. Name of table
+                        out_tif: Raw str. Path for GeoTiff to create
+                        column:  Str. Name of 'raster' column in db table
+                        band:    Int. Band to read
         flip:    Bool. Sometimes required?
 
-    Returns:
-        The GeoTiff is saved to the specified path.
+                    Returns:
+                        The GeoTiff is saved to the specified path.
     """
     # Extract PostGIS raster to array
     pg_dict = {
@@ -1444,8 +1452,8 @@ def read_postgis(schema, table, engine, clip=None):
 
         # Get CRS of target dataset
         sql = f"SELECT * FROM {schema}.{table} " "LIMIT 1"
-        col_gdf = gpd.read_postgis(sql, engine)
-        crs = col_gdf.crs
+        with engine.connect() as connection:
+            col_gdf = gpd.read_postgis(sql, connection)
         cols = list(col_gdf.columns)
         cols.remove("geom")
         cols = [f"a.{i}" for i in cols]
@@ -1470,12 +1478,14 @@ def read_postgis(schema, table, engine, clip=None):
             f"  bbox AS b "
             f"WHERE ST_Intersects(a.geom, b.geom)"
         )
-        gdf = gpd.read_postgis(sql, engine)
+        with engine.connect() as connection:
+            gdf = gpd.read_postgis(sql, connection)
 
     else:
         # Read layer
         sql = f"SELECT * FROM {schema}.{table}"
-        gdf = gpd.read_postgis(sql, engine)
+        with engine.connect() as connection:
+            gdf = gpd.read_postgis(sql, connection)
 
     return gdf
 
@@ -1491,7 +1501,8 @@ def select_jhub_projects(eng):
         Dataframe of projects.
     """
     sql = "SELECT * FROM niva.projects"
-    df = pd.read_sql(sql, eng)
+    with eng.connect() as connection:
+        df = pd.read_sql(sql, connection)
 
     return df
 
@@ -1521,12 +1532,16 @@ def select_jhub_project_catchments(proj_ids, eng):
         "  WHERE project_id = %(proj_ids)s "
         ")"
     )
-    stn_gdf = gpd.read_postgis(sql, eng, params={"proj_ids": tuple(proj_ids)})
+    with eng.connect() as connection:
+        stn_gdf = gpd.read_postgis(
+            sql, connection, params={"proj_ids": tuple(proj_ids)}
+        )
 
     # Get catchments
     sql = "SELECT * from niva.catchments " "WHERE station_id IN %(stns)s"
     stns = tuple(stn_gdf["station_id"].tolist())
-    cat_gdf = gpd.read_postgis(sql, eng, params={"stns": stns})
+    with eng.connect() as connection:
+        cat_gdf = gpd.read_postgis(sql, connection, params={"stns": stns})
 
     # Join
     cat_gdf = cat_gdf.merge(
@@ -1559,33 +1574,36 @@ def select_jhub_project_catchments(proj_ids, eng):
     return (stn_gdf, cat_gdf)
 
 
-def authenticate_nve_hydapi():
-    """Attempts to read the user's API key for NVE's Hydrological API from a file
-        located at '/home/jovyan/.nve-hydapi-key'
-
-        The file is plain text and should have the following format:
-
-            [Auth]
-            key = your-api-key-here
-
-    Returns
-        API key.
+def authenticate_nve_hydapi(authfile_path=r"/home/jovyan/.nve-hydapi-key"):
     """
-    authfile = r"/home/jovyan/.nve-hydapi-key"
-    if os.path.isfile(authfile):
-        config = configparser.RawConfigParser()
-        try:
-            config.read(authfile)
-            api_key = config.get("Auth", "key")
+    Attempts to read the user's API key for NVE's Hydrological API from a file.
 
-            return api_key
+    Args:
+        authfile_path: Str. The path to the authentication file. Default is
+            '/home/jovyan/.nve-hydapi-key'.
 
-        except Exception as ex:
-            raise Exception("Could not read API key from file.")
-    else:
-        raise Exception(
-            "Could not find the file '/home/jovyan/.nve-hydapi-key'.\n"
-            "Either create this file (recommended) or specify your API key explictly in the function call."
+    Returns:
+        Str. The API key if the file exists and the key is found. Otherwise, raises
+        an exception.
+
+    Raises:
+        FileNotFoundError: If the authentication file does not exist.
+        KeyError: If the 'Auth' section or 'key' option is not found in the file.
+    """
+    if not os.path.isfile(authfile_path):
+        raise FileNotFoundError(
+            f"Could not find the file '{authfile_path}'.\n"
+            "Either create this file (recommended) or specify your API key explicitly in the function call."
+        )
+
+    config = configparser.ConfigParser()
+    config.read(authfile_path)
+
+    try:
+        return config.get("Auth", "key")
+    except (configparser.NoSectionError, configparser.NoOptionError):
+        raise KeyError(
+            "Could not read API key from file. Ensure the file has an 'Auth' section with a 'key' option."
         )
 
 
@@ -1627,7 +1645,9 @@ def get_nve_hydapi_stations(api_key=None):
     return df
 
 
-def query_nve_hydapi(stn_ids, par_ids, st_dt, end_dt, resolution=1440, api_key=None, series_ver=None):
+def query_nve_hydapi(
+    stn_ids, par_ids, st_dt, end_dt, resolution=1440, api_key=None, series_ver=None
+):
     """Query data via NVE's Hydrological API (https://hydapi.nve.no/UserDocumentation/).
 
     Args:
@@ -1642,7 +1662,7 @@ def query_nve_hydapi(stn_ids, par_ids, st_dt, end_dt, resolution=1440, api_key=N
                     directly to the function. Instead, create a file containing your key and
                     store it in your HOME directory. See docstring for authenticate_nve_hydapi()
                     for further details
-        series_ver: Int or None. For series with multiple versions, the desired version can be 
+        series_ver: Int or None. For series with multiple versions, the desired version can be
                     specified. If None, returns the version with the most recent data.
     """
     assert dt.datetime.strptime(st_dt, "%Y-%m-%d") < dt.datetime.strptime(
@@ -1655,7 +1675,7 @@ def query_nve_hydapi(stn_ids, par_ids, st_dt, end_dt, resolution=1440, api_key=N
 
     baseurl = "https://hydapi.nve.no/api/v1/Observations?StationId={stns}&Parameter={pars}&ResolutionTime={resolution}&ReferenceTime={st_dt}/{end_dt}"
     if series_ver:
-        base_url += f"&VersionNumber={series_ver}"
+        baseurl += f"&VersionNumber={series_ver}"
 
     par_ids = [str(i) for i in par_ids]
     stns = ",".join(stn_ids)

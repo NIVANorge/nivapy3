@@ -240,9 +240,6 @@ def target_plot(
     outer_circle = plt.Circle((0, 0), 1, edgecolor="k", ls="-", lw=1, fill=False)
     ax.add_artist(outer_circle)
 
-    vline = ax.vlines(0, -2, 2)
-    hline = ax.hlines(0, -2, 2)
-
     # Add labels and titles
     ax.set_xlabel("Normalised, unbiased RMSD")
     ax.set_ylabel("Normalised bias")
