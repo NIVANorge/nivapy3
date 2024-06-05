@@ -17,6 +17,7 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import requests
 import shapely
 import sqlalchemy
 import xarray as xr
@@ -1279,21 +1280,21 @@ def postgis_raster_to_geotiff(
     dbname, host, port, schema, table, out_tif, column="rast", band=1, flip=False
 ):
     """Convert a PostGIS raster dataset to a GeoTiff. You will be asked to
-                        enter a user name and password.
+                            enter a user name and password.
 
-                    Args:
-                        dbname:  Str. Name of db
-                        host:    Str. Hostname. Use 'host.docker.internal' for the Docker host
-                        port:    Int. Port number for db connection
-                        schema:  Str. Name of schema
-                        table:   Str. Name of table
-                        out_tif: Raw str. Path for GeoTiff to create
-                        column:  Str. Name of 'raster' column in db table
-                        band:    Int. Band to read
+                        Args:
+                            dbname:  Str. Name of db
+                            host:    Str. Hostname. Use 'host.docker.internal' for the Docker host
+                            port:    Int. Port number for db connection
+                            schema:  Str. Name of schema
+                            table:   Str. Name of table
+                            out_tif: Raw str. Path for GeoTiff to create
+                            column:  Str. Name of 'raster' column in db table
+                            band:    Int. Band to read
         flip:    Bool. Sometimes required?
 
-                    Returns:
-                        The GeoTiff is saved to the specified path.
+                        Returns:
+                            The GeoTiff is saved to the specified path.
     """
     # Extract PostGIS raster to array
     pg_dict = {
@@ -2702,3 +2703,66 @@ def get_era5land_cds_api_aggregated_time_series(
         warnings.warn(msg)
 
     return res_df
+
+
+def get_data_from_vannmiljo(endpoint, params=None):
+    """Vannmiljø endpoints are documented here:
+
+        https://vannmiljowebapi.miljodirektoratet.no/swagger/ui/index#!
+
+    This function can be used with any of the GET endpoints.
+
+    Args
+        endpoint: Str. Any of the GET endpoints listed for the API (e.g.
+                  'GetMediumList')
+        params:   Dict. Valid parameters for the chosen endpoint - see the
+                  Swagger UI for details. E.g. {'filter': 'BB'} for the
+                  'GetMediumList' endpoint
+
+    Returns
+        Dataframe.
+    """
+    headers = {
+        "Content-Type": "application/json",
+    }
+    url = f"https://vannmiljowebapi.miljodirektoratet.no/api/Public/{endpoint}"
+    response = requests.get(url, headers=headers, params=params)
+
+    return pd.DataFrame(response.json())
+
+
+def get_vannmiljo_api_key():
+    """Get API key for POSTing to Vannmiljø."""
+    fpath = "/home/jovyan/shared/common/01_datasets/tokens/vannmiljo_api_token.json"
+    with open(fpath) as f:
+        data = json.loads(f.read())
+
+    return data["VANNMILJO_API_KEY"]
+
+
+def post_data_to_vannmiljo(endpoint, data=None):
+    """Vannmiljø endpoints are documented here:
+
+        https://vannmiljowebapi.miljodirektoratet.no/swagger/ui/index#!
+
+    This function can be used with any of the POST endpoints.
+
+    Args
+        endpoint: Str. Any of the POST endpoints listed for the API (e.g.
+                  'GetRegistrations')
+        data:     Dict. Valid parameters for the chosen endpoint - see the
+                  Swagger UI for details. E.g.
+                      {'WaterLocationCodeFilter': ['002-58798']}
+                  for the 'GetRegistrations' endpoint
+
+    Returns
+        Dataframe.
+    """
+    headers = {
+        "vannmiljoWebAPIKey": get_vannmiljo_api_key(),
+        "Content-Type": "application/json",
+    }
+    url = f"https://vannmiljowebapi.miljodirektoratet.no/api/Public/{endpoint}"
+    response = requests.post(url, headers=headers, data=json.dumps(data))
+
+    return pd.DataFrame(response.json()["Result"])
