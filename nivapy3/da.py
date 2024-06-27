@@ -1059,6 +1059,7 @@ def gdf_to_postgis(gdf, table_name, schema, eng, sp_index, create_pk=True, **kwa
                 "epsg": epsg,
             }
             conn.execute(sql.format(**sql_args))
+            conn.commit()
 
     elif geom_types in [
         set(["Point", "MultiPoint"]),
@@ -1091,6 +1092,7 @@ def gdf_to_postgis(gdf, table_name, schema, eng, sp_index, create_pk=True, **kwa
                 "epsg": epsg,
             }
             conn.execute(sql.format(**sql_args))
+            conn.commit()
 
     else:
         raise ValueError(
@@ -1104,6 +1106,7 @@ def gdf_to_postgis(gdf, table_name, schema, eng, sp_index, create_pk=True, **kwa
         sql_args = {"table_name": table_name, "schema": schema, "idx_name": sp_index}
         with eng.connect() as conn:
             conn.execute(sql.format(**sql_args))
+            conn.commit()
 
     # Add primary key if required
     if create_pk:
@@ -1111,6 +1114,7 @@ def gdf_to_postgis(gdf, table_name, schema, eng, sp_index, create_pk=True, **kwa
         sql_args = {"table_name": table_name, "schema": schema}
         with eng.connect() as conn:
             conn.execute(sql.format(**sql_args))
+            conn.commit()
 
 
 def select_resa_stations_in_polygon(poly_vec, id_col, eng):
