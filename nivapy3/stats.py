@@ -937,9 +937,17 @@ def double_mad_from_median(data, thresh=3.5):
     abs_dev = np.abs(data - m)
     left_mad = np.median(abs_dev[data <= m])
     right_mad = np.median(abs_dev[data >= m])
-    if (left_mad == 0) or (right_mad == 0):
-        # Don't identify any outliers. Not strictly correct - see links above!
-        return np.zeros_like(data, dtype=bool)
+    
+    # if (left_mad == 0) or (right_mad == 0):
+    #     # Don't identify any outliers. Not strictly correct - see last section of
+    #     # https://eurekastatistics.com/using-the-median-absolute-deviation-to-find-outliers/
+    #     return np.zeros_like(data, dtype=bool)
+
+    # Replace zero MAD values with a small positive number. Not sure whether this is strictly
+    # valid either, but it seems to work quite well and allows flagging of outliers when the
+    # left or right MADs are zero
+    left_mad = left_mad if left_mad != 0 else 1e-6
+    right_mad = right_mad if right_mad != 0 else 1e-6
 
     data_mad = left_mad * np.ones(len(data))
     data_mad[data > m] = right_mad
