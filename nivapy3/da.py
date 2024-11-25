@@ -2782,7 +2782,7 @@ def get_data_from_vannnett(wb_id, quality_element):
             'rbsp', 'swchemical'].
 
     Returns
-        DataFrame of water quality data.
+        DataFrame of water quality data (if available) or None.
     """
     valid_elements = ["ecological", "rbsp", "swchemical"]
     if quality_element.lower() not in valid_elements:
@@ -2832,7 +2832,13 @@ def get_data_from_vannnett(wb_id, quality_element):
                 par_df = par_df.dropna(axis="columns", how="all")
                 df_list.append(par_df)
 
-    df = pd.concat(df_list, ignore_index=True)
-    df = df[par_map.values()]
-
-    return df
+    if len(df_list) > 0:
+        df = pd.concat(df_list, ignore_index=True)
+        for col in par_map.values():
+            if col not in df.columns:
+                df[col] = np.nan
+        df["waterbody_id"] = wb_id
+        df = df[["waterbody_id"] + list(par_map.values())]
+        return df
+    else:
+        return None
