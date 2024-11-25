@@ -2774,7 +2774,7 @@ def post_data_to_vannmiljo(endpoint, data=None):
 
 def get_data_from_vannnett(wb_id, quality_element):
     """
-    Get water quality data from the vann-nett.
+    Fetches water quality data from the vann-nett service.
 
     Parameters
         wb_id: Str. The waterbody ID.
@@ -2829,8 +2829,10 @@ def get_data_from_vannnett(wb_id, quality_element):
             par_df = pd.json_normalize(ele_row.parameters)
             if not par_df.empty:
                 par_df = par_df[par_cols].rename(columns=par_map)
+                par_df = par_df.dropna(axis="columns", how="all")
                 df_list.append(par_df)
 
     df = pd.concat(df_list, ignore_index=True)
+    df = df[par_map.values()]
 
     return df
