@@ -1284,21 +1284,21 @@ def postgis_raster_to_geotiff(
     dbname, host, port, schema, table, out_tif, column="rast", band=1, flip=False
 ):
     """Convert a PostGIS raster dataset to a GeoTiff. You will be asked to
-                            enter a user name and password.
+                                enter a user name and password.
 
-                        Args:
-                            dbname:  Str. Name of db
-                            host:    Str. Hostname. Use 'host.docker.internal' for the Docker host
-                            port:    Int. Port number for db connection
-                            schema:  Str. Name of schema
-                            table:   Str. Name of table
-                            out_tif: Raw str. Path for GeoTiff to create
-                            column:  Str. Name of 'raster' column in db table
-                            band:    Int. Band to read
+                            Args:
+                                dbname:  Str. Name of db
+                                host:    Str. Hostname. Use 'host.docker.internal' for the Docker host
+                                port:    Int. Port number for db connection
+                                schema:  Str. Name of schema
+                                table:   Str. Name of table
+                                out_tif: Raw str. Path for GeoTiff to create
+                                column:  Str. Name of 'raster' column in db table
+                                band:    Int. Band to read
         flip:    Bool. Sometimes required?
 
-                        Returns:
-                            The GeoTiff is saved to the specified path.
+                            Returns:
+                                The GeoTiff is saved to the specified path.
     """
     # Extract PostGIS raster to array
     pg_dict = {
@@ -2770,3 +2770,67 @@ def post_data_to_vannmiljo(endpoint, data=None):
     response = requests.post(url, headers=headers, data=json.dumps(data))
 
     return pd.DataFrame(response.json()["Result"])
+
+
+def get_data_from_vannnett(wb_id, quality_element):
+    """
+    Get water quality data from the vann-nett.
+
+    Parameters
+        wb_id: Str. The waterbody ID.
+        quality_element: Str. The quality element to fetch. Must be one of ['ecological',
+            'rbsp', 'swchemical'].
+
+    Returns
+        DataFrame of water quality data.
+    """
+    valid_elements = ["ecological", "rbsp", "swchemical"]
+    if quality_element.lower() not in valid_elements:
+        raise ValueError(
+            "'quality_element' must be one of ['ecological', 'rbsp', 'swchemical']."
+        )
+
+    element_dict = {
+        "ecological": "ecological",
+        "rbsp": "RBSP",
+        "swchemical": "swChemical",
+    }
+    quality_element = element_dict[quality_element.lower()]
+
+    url = f"https://vann-nett.no/service/waterbodies/{wb_id}/qualityElements/{quality_element}"
+    response = requests.get(url)
+    if response.status_code != 200:
+        response.raise_for_status()
+    data = response.json()
+
+    par_map = {
+        "qualityElementType.parentId": "category",
+        "qualityElementType.id": "element",
+        "parameterType.text": "parameter",
+        "status.text": "status",
+        "eqr": "eqr",
+        "neqr": "neqr",
+        "value": "value",
+        "threshold.refValue": "reference_value",
+        "threshold.unit": "unit",
+        "threshold.statusLimits": "status_limits",
+        "yearFrom": "year_from",
+        "yearTo": "year_to",
+        "sampleCount": "sample_count",
+        "otherSource": "source",
+        "dataQuality.text": "data_quality",
+    }
+    par_cols = par_map.keys()
+    df_list = []
+    cat_data = pd.json_normalize(data)
+    for cat_row in cat_data.itertuples():
+        ele_data = pd.json_normalize(cat_row.qualityElements)
+        for ele_row in ele_data.itertuples():
+            par_df = pd.json_normalize(ele_row.parameters)
+            if not par_df.empty:
+                par_df = par_df[par_cols].rename(columns=par_map)
+                df_list.append(par_df)
+
+    df = pd.concat(df_list, ignore_index=True)
+
+    return df
