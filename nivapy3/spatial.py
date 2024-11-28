@@ -110,7 +110,7 @@ def quickmap(
 
     if kartverket:
         folium.raster_layers.TileLayer(
-            tiles="https://opencache.statkart.no/gatekeeper/gk/gk.open_gmaps?layers=topo4&zoom={z}&x={x}&y={y}",
+            tiles="https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
             attr="karkverket",
             name="Kartverket topographic",
             overlay=False,
