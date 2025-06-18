@@ -2712,7 +2712,7 @@ def get_era5land_cds_api_aggregated_time_series(
 def get_data_from_vannmiljo(endpoint, params=None):
     """Vannmiljø endpoints are documented here:
 
-        https://vannmiljowebapi.miljodirektoratet.no/swagger/ui/index#!
+        https://vannmiljoapi.miljodirektoratet.no/swagger/ui/index#!
 
     This function can be used with any of the GET endpoints.
 
@@ -2729,7 +2729,7 @@ def get_data_from_vannmiljo(endpoint, params=None):
     headers = {
         "Content-Type": "application/json",
     }
-    url = f"https://vannmiljowebapi.miljodirektoratet.no/api/Public/{endpoint}"
+    url = f"https://vannmiljoapi.miljodirektoratet.no/api/Public/{endpoint}"
     response = requests.get(url, headers=headers, params=params)
 
     return pd.DataFrame(response.json())
@@ -2747,7 +2747,7 @@ def get_vannmiljo_api_key():
 def post_data_to_vannmiljo(endpoint, data=None):
     """Vannmiljø endpoints are documented here:
 
-        https://vannmiljowebapi.miljodirektoratet.no/swagger/ui/index#!
+        https://vannmiljoapi.miljodirektoratet.no/swagger/ui/index#!
 
     This function can be used with any of the POST endpoints.
 
@@ -2766,7 +2766,7 @@ def post_data_to_vannmiljo(endpoint, data=None):
         "vannmiljoWebAPIKey": get_vannmiljo_api_key(),
         "Content-Type": "application/json",
     }
-    url = f"https://vannmiljowebapi.miljodirektoratet.no/api/Public/{endpoint}"
+    url = f"https://vannmiljoapi.miljodirektoratet.no/api/Public/{endpoint}"
     response = requests.post(url, headers=headers, data=json.dumps(data))
 
     return pd.DataFrame(response.json()["Result"])
