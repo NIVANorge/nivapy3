@@ -1517,7 +1517,6 @@ def plot_raster(
     fig = plt.figure(figsize=figsize)
 
     # Build area definition
-    proj_string = ds.rio.crs.to_proj4()
     x_cell_size, y_cell_size = tuple(abs(i) for i in ds.rio.resolution())
     xmin = ds["x"].values.min() - (x_cell_size / 2)
     xmax = ds["x"].values.max() + (x_cell_size / 2)
@@ -1525,7 +1524,7 @@ def plot_raster(
     ymax = ds["y"].values.max() + (y_cell_size / 2)
 
     # Pyresample doesn't seems to cope well with EPSG 4326
-    if proj_string == "+init=epsg:4326":
+    if if ds.rio.crs.is_geographic:
         crs = ccrs.PlateCarree()
         ax = fig.add_subplot(1, 1, 1, projection=crs)
         ax.set_extent([xmin, xmax, ymin, ymax], crs=crs)
@@ -1687,7 +1686,7 @@ def clip_raster_to_bounding_box(raster_path, out_gtiff, bounding_box):
     """
     # Read raster
     ras = rasterio.open(raster_path)
-    crs = ras.crs.data["init"]
+    crs = ras.crs
 
     bbox = box(*bounding_box)
     clip_gdf = gpd.GeoDataFrame({"geometry": bbox}, index=[0], crs=crs)
@@ -1800,7 +1799,7 @@ def catchment_boundary_quickmap(stn_code, cat_gdf, title=None, out_png=None):
     crs = ccrs.UTM(zone)
     ax = fig.add_subplot(111, projection=crs)
 
-    ax.add_wms(wms="https://openwms.statkart.no/skwms1/wms.topo4", layers=["topo4_WMS"])
+    ax.add_wms(wms="https://wms.geonorge.no/skwms1/wms.kartdata", layers=["kartdata"])
 
     cat.to_crs("epsg:32633").plot(ax=ax, facecolor="none", edgecolor="k", lw=2)
 
