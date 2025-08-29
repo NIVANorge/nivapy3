@@ -412,7 +412,7 @@ def estimate_fluxes(
     q_df,
     chem_df,
     base_freq="D",
-    agg_freq="A",
+    agg_freq="YE",
     method="linear_interpolation",
     st_date=None,
     end_date=None,
@@ -458,10 +458,10 @@ def estimate_fluxes(
     Args:
         q_df:      Dataframe. Must have a datetime index and a column named 'flow_m3/s'
         chem_df:   Dataframe. Must have a datetime index and each column named 'parname_unit' - see above
-        base_freq: Str. 'D' for daily; 'M' for monthly; 'A' for annual etc. The initial data frequency for q_df and
-                   chem_df
-        agg_freq:  Str. 'D' for daily; 'M' for monthly; 'A' for annual etc. The frequency at which fluxes should be
-                   reported
+        base_freq: Str. 'D' for daily; 'ME' for monthly ("month end"); 'YE' for annual ("year end") etc. The initial 
+                   data frequency for q_df and chem_df
+        agg_freq:  Str.  'D' for daily; 'ME' for monthly ("month end"); 'YE' for annual ("year end") etc. The 
+                   frequency at which fluxes should be reported
         method:    Str. One of ['linear_interpolation', 'simple_means', 'log_log_linear_regression', 'ospar_annual']
         st_dt:     Str. Only consider values after this date. Format: 'YYYY-MM-DD'
         end_dt:    Str. Only consider values before this date. Format: 'YYYY-MM-DD'
@@ -750,7 +750,7 @@ def fluxes_log_log_linear_regression(df, plot_fold=None):
 def fluxes_ospar_annual(df):
     """Called by estimate_fluxes."""
     # Annual flow volumes
-    ann_q_df = (df[["flow_m3/s"]] * 24 * 60 * 60).resample("A").sum()
+    ann_q_df = (df[["flow_m3/s"]] * 24 * 60 * 60).resample("YE").sum()
     ann_q_df.columns = ["flow_m3"]
     ann_q_df.index = ann_q_df.index.year
 
