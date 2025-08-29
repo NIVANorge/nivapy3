@@ -9,16 +9,17 @@ import subprocess
 import time
 import warnings
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import cdsapi
-import cx_Oracle
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sn
+import requests
 import shapely
+import sqlalchemy
 import xarray as xr
 from osgeo import gdal, osr
 from pandas import json_normalize
@@ -72,26 +73,18 @@ def connect(src="nivabase", db_name=None, port=5432):
 
     if src == "nivabase":
         conn_str = (
-            r"oracle+cx_oracle://%s:%s@DBORA-NIVA-PROD01.NIVA.CORP:1555/NIVABPRD"
-            % (
-                user,
-                pw,
-            )
+            f"oracle+cx_oracle://{user}:{pw}@DBORA-NIVA-PROD01.NIVA.CORP:1555/NIVABPRD"
         )
     else:
-        conn_str = r"postgresql+psycopg2://%s:%s@host.docker.internal:%s/%s" % (
-            user,
-            pw,
-            port,
-            db_name,
+        conn_str = (
+            f"postgresql+psycopg2://{user}:{pw}@host.docker.internal:{port}/{db_name}"
         )
 
-    # Create connection
+    # Create and test connection
     try:
         engine = create_engine(conn_str)
-        conn = engine.connect()
-        print("Connection successful.")
-
+        with engine.connect() as connection:
+            print("Connection successful.")
         return engine
 
     except Exception as e:
@@ -103,7 +96,7 @@ def connect_postgis(
     admin=False,
     user="jovyan",
     password="joyvan_ro_pw",
-    host="localhost",
+    host="postgis",
     port=5432,
     database="general",
 ):
@@ -133,11 +126,11 @@ def connect_postgis(
     # Build connection string
     conn_str = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{database}"
 
-    # Create connection
+    # Create and test connection
     try:
         engine = create_engine(conn_str)
-        conn = engine.connect()
-        print("Connection successful.")
+        with engine.connect() as connection:
+            print("Connection successful.")
 
         return engine
 
@@ -166,7 +159,8 @@ def select_resa_projects(engine):
         "FROM resa2.projects "
         "ORDER BY project_id"
     )
-    df = pd.read_sql(sql, engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, connection)
 
     print("%s projects in the RESA database." % len(df))
 
@@ -191,7 +185,8 @@ def select_ndb_projects(engine):
         "FROM nivadatabase.projects "
         "ORDER BY project_id"
     )
-    df = pd.read_sql(sql, engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, connection)
 
     print("%s projects in the NIVADATABASE." % len(df))
 
@@ -219,7 +214,8 @@ def select_resa_stations(engine):
         "FROM resa2.stations "
         "ORDER BY station_id"
     )
-    df = pd.read_sql(sql, engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, connection)
 
     print("%s stations in the RESA database." % len(df))
 
@@ -259,7 +255,8 @@ def select_ndb_stations(engine):
         "AND b.geom_ref_id     = d.sample_point_id "
         "ORDER BY a.station_id"
     )
-    df = pd.read_sql(sql, engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, connection)
 
     print("%s stations in the NIVADATABASE." % len(df))
 
@@ -293,8 +290,8 @@ def select_resa_project_stations(project_list, engine):
         "  SELECT station_id FROM resa2.projects_stations "
         "  WHERE project_id IN (%s))" % bind_pars
     )
-
-    df = pd.read_sql(sql, con=engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, con=connection)
 
     return df
 
@@ -350,7 +347,8 @@ def select_ndb_project_stations(proj_df, engine, drop_dups=False):
         "AND b.geom_ref_id     = d.sample_point_id "
         "ORDER BY a.station_id" % bind_pars
     )
-    df = pd.read_sql(sql, con=engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, connection)
 
     # Drop duplictaes, if desired
     if drop_dups:
@@ -406,9 +404,9 @@ def select_resa_station_parameters(stn_df, st_dt, end_dt, engine):
         "ORDER BY parameter_name, "
         "  unit" % bind_pars
     )
-
     par_dict = {"end_dt": end_dt, "st_dt": st_dt}
-    df = pd.read_sql(sql, params=par_dict, con=engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, params=par_dict, con=connection)
 
     print("%s parameters available for the selected stations and dates." % len(df))
 
@@ -464,7 +462,8 @@ def select_ndb_station_parameters(stn_df, st_dt, end_dt, engine):
     )
 
     par_dict = {"end_dt": end_dt, "st_dt": st_dt}
-    df = pd.read_sql(sql, params=par_dict, con=engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, params=par_dict, con=connection)
 
     print("%s parameters available for the selected stations and dates." % len(df))
 
@@ -554,7 +553,8 @@ def select_resa_water_chemistry(
     )
 
     par_dict = {"end_dt": end_dt, "st_dt": st_dt}
-    df = pd.read_sql(sql, params=par_dict, con=engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, params=par_dict, con=connection)
 
     # Drop exact duplicates (i.e. including value)
     df.drop_duplicates(
@@ -771,9 +771,9 @@ def select_ndb_water_chemistry(
         "AND sample_date    >= :st_dt "
         "AND sample_date    <= :end_dt" % (bind_stns, bind_pars)
     )
-
     par_dict = {"end_dt": end_dt, "st_dt": st_dt}
-    df = pd.read_sql(sql, params=par_dict, con=engine)
+    with engine.connect() as connection:
+        df = pd.read_sql(sql, params=par_dict, con=connection)
 
     # Drop exact duplicates (i.e. including value)
     df.drop_duplicates(
@@ -924,16 +924,18 @@ def extract_resa_discharge(stn_id, st_dt, end_dt, engine, plot=False):
         returns a tuple (q_df, figure object)
     """
     # Check stn is valid
-    sql = "SELECT * FROM resa2.stations " "WHERE station_id = :stn_id"
-    stn_df = pd.read_sql_query(sql, params={"stn_id": stn_id}, con=engine)
+    sql = "SELECT * FROM resa2.stations WHERE station_id = :stn_id"
+    with engine.connect() as connection:
+        stn_df = pd.read_sql_query(sql, params={"stn_id": stn_id}, con=connection)
     assert len(stn_df) == 1, "Error in station code."
 
     # Get station_code
     stn_code = stn_df["station_code"].iloc[0]
 
     # Check a discharge station is defined for this WC station
-    sql = "SELECT * FROM resa2.default_dis_stations " "WHERE station_id = :stn_id"
-    dis_df = pd.read_sql_query(sql, params={"stn_id": stn_id}, con=engine)
+    sql = "SELECT * FROM resa2.default_dis_stations WHERE station_id = :stn_id"
+    with engine.connect() as connection:
+        dis_df = pd.read_sql_query(sql, params={"stn_id": stn_id}, con=connection)
     assert len(dis_df) == 1, "Error identifying discharge station."
 
     # Get ID for discharge station
@@ -945,7 +947,10 @@ def extract_resa_discharge(stn_id, st_dt, end_dt, engine, plot=False):
         "SELECT area FROM resa2.discharge_stations "
         "WHERE dis_station_id = :dis_stn_id"
     )
-    area_df = pd.read_sql_query(sql, params={"dis_stn_id": dis_stn_id}, con=engine)
+    with engine.connect() as connection:
+        area_df = pd.read_sql_query(
+            sql, params={"dis_stn_id": dis_stn_id}, con=connection
+        )
     dis_area = area_df["area"].iloc[0]
 
     # Chemistry station
@@ -960,11 +965,12 @@ def extract_resa_discharge(stn_id, st_dt, end_dt, engine, plot=False):
         "AND xdate >= :st_dt "
         "AND xdate <= :end_dt"
     )
-    q_df = pd.read_sql_query(
-        sql,
-        params={"dis_stn_id": dis_stn_id, "st_dt": st_dt, "end_dt": end_dt},
-        con=engine,
-    )
+    with engine.connect() as connection:
+        q_df = pd.read_sql_query(
+            sql,
+            params={"dis_stn_id": dis_stn_id, "st_dt": st_dt, "end_dt": end_dt},
+            con=connection,
+        )
 
     q_df.columns = ["date", "flow_m3/s"]
     q_df.index = q_df["date"]
@@ -993,7 +999,7 @@ def extract_resa_discharge(stn_id, st_dt, end_dt, engine, plot=False):
         return q_df
 
 
-def gdf_to_postgis(gdf, table_name, schema, con, sp_index, create_pk=True, **kwargs):
+def gdf_to_postgis(gdf, table_name, schema, eng, sp_index, create_pk=True, **kwargs):
     """Writes a geodataframe to a postgis database. Adapted from:
 
            https://github.com/geopandas/geopandas/pull/440
@@ -1039,19 +1045,21 @@ def gdf_to_postgis(gdf, table_name, schema, con, sp_index, create_pk=True, **kwa
         geom_type = list(geom_types)[0].upper()
 
         # Write to db
-        temp_gdf.to_sql(table_name, con, schema=schema, **kwargs)
-        sql = (
-            "ALTER TABLE {schema}.{table_name} "
-            "ALTER COLUMN geom TYPE geometry({geom_type}, {epsg}) "
-            "USING ST_SetSRID(geom, {epsg})"
-        )
-        sql_args = {
-            "table_name": table_name,
-            "schema": schema,
-            "geom_type": geom_type,
-            "epsg": epsg,
-        }
-        con.execute(sql.format(**sql_args))
+        with eng.connect() as conn:
+            temp_gdf.to_sql(table_name, conn, schema=schema, **kwargs)
+            sql = (
+                "ALTER TABLE {schema}.{table_name} "
+                "ALTER COLUMN geom TYPE geometry({geom_type}, {epsg}) "
+                "USING ST_SetSRID(geom, {epsg})"
+            )
+            sql_args = {
+                "table_name": table_name,
+                "schema": schema,
+                "geom_type": geom_type,
+                "epsg": epsg,
+            }
+            conn.execute(sql.format(**sql_args))
+            conn.commit()
 
     elif geom_types in [
         set(["Point", "MultiPoint"]),
@@ -1070,19 +1078,21 @@ def gdf_to_postgis(gdf, table_name, schema, con, sp_index, create_pk=True, **kwa
         geom_type = geom_type[0].upper()
 
         # Write to db
-        temp_gdf.to_sql(table_name, con, schema=schema, **kwargs)
-        sql = (
-            "ALTER TABLE {schema}.{table_name} "
-            "ALTER COLUMN geom TYPE geometry({geom_type}, {epsg}) "
-            "USING ST_Multi(ST_SetSRID(geom, {epsg}))"
-        )
-        sql_args = {
-            "table_name": table_name,
-            "schema": schema,
-            "geom_type": geom_type,
-            "epsg": epsg,
-        }
-        con.execute(sql.format(**sql_args))
+        with eng.connect() as conn:
+            temp_gdf.to_sql(table_name, conn, schema=schema, **kwargs)
+            sql = (
+                "ALTER TABLE {schema}.{table_name} "
+                "ALTER COLUMN geom TYPE geometry({geom_type}, {epsg}) "
+                "USING ST_Multi(ST_SetSRID(geom, {epsg}))"
+            )
+            sql_args = {
+                "table_name": table_name,
+                "schema": schema,
+                "geom_type": geom_type,
+                "epsg": epsg,
+            }
+            conn.execute(sql.format(**sql_args))
+            conn.commit()
 
     else:
         raise ValueError(
@@ -1094,13 +1104,17 @@ def gdf_to_postgis(gdf, table_name, schema, con, sp_index, create_pk=True, **kwa
     if sp_index:
         sql = "CREATE INDEX {idx_name} " "ON {schema}.{table_name} " "USING GIST (geom)"
         sql_args = {"table_name": table_name, "schema": schema, "idx_name": sp_index}
-        con.execute(sql.format(**sql_args))
+        with eng.connect() as conn:
+            conn.execute(sql.format(**sql_args))
+            conn.commit()
 
     # Add primary key if required
     if create_pk:
         sql = "ALTER TABLE {schema}.{table_name} " "ADD COLUMN id SERIAL PRIMARY KEY"
         sql_args = {"table_name": table_name, "schema": schema}
-        con.execute(sql.format(**sql_args))
+        with eng.connect() as conn:
+            conn.execute(sql.format(**sql_args))
+            conn.commit()
 
 
 def select_resa_stations_in_polygon(poly_vec, id_col, eng):
@@ -1214,9 +1228,9 @@ def postgis_raster_to_array(eng, pg_ras, schema="public", band=1):
     )
 
     # What is pg_ras
-    if isinstance(pg_ras, sqlalchemy.engine.result.ResultProxy):
+    if isinstance(pg_ras, sqlalchemy.engine.ResultProxy):
         # Already have raster 'result' obj
-        ras = pg_res
+        res = pg_ras
     elif isinstance(pg_ras, str):
         # User wants to select an entire raster
         # Build query
@@ -1270,21 +1284,21 @@ def postgis_raster_to_geotiff(
     dbname, host, port, schema, table, out_tif, column="rast", band=1, flip=False
 ):
     """Convert a PostGIS raster dataset to a GeoTiff. You will be asked to
-        enter a user name and password.
+                                enter a user name and password.
 
-    Args:
-        dbname:  Str. Name of db
-        host:    Str. Hostname. Use 'host.docker.internal' for the Docker host
-        port:    Int. Port number for db connection
-        schema:  Str. Name of schema
-        table:   Str. Name of table
-        out_tif: Raw str. Path for GeoTiff to create
-        column:  Str. Name of 'raster' column in db table
-        band:    Int. Band to read
+                            Args:
+                                dbname:  Str. Name of db
+                                host:    Str. Hostname. Use 'host.docker.internal' for the Docker host
+                                port:    Int. Port number for db connection
+                                schema:  Str. Name of schema
+                                table:   Str. Name of table
+                                out_tif: Raw str. Path for GeoTiff to create
+                                column:  Str. Name of 'raster' column in db table
+                                band:    Int. Band to read
         flip:    Bool. Sometimes required?
 
-    Returns:
-        The GeoTiff is saved to the specified path.
+                            Returns:
+                                The GeoTiff is saved to the specified path.
     """
     # Extract PostGIS raster to array
     pg_dict = {
@@ -1443,8 +1457,8 @@ def read_postgis(schema, table, engine, clip=None):
 
         # Get CRS of target dataset
         sql = f"SELECT * FROM {schema}.{table} " "LIMIT 1"
-        col_gdf = gpd.read_postgis(sql, engine)
-        crs = col_gdf.crs
+        with engine.connect() as connection:
+            col_gdf = gpd.read_postgis(sql, connection)
         cols = list(col_gdf.columns)
         cols.remove("geom")
         cols = [f"a.{i}" for i in cols]
@@ -1469,12 +1483,14 @@ def read_postgis(schema, table, engine, clip=None):
             f"  bbox AS b "
             f"WHERE ST_Intersects(a.geom, b.geom)"
         )
-        gdf = gpd.read_postgis(sql, engine)
+        with engine.connect() as connection:
+            gdf = gpd.read_postgis(sql, connection)
 
     else:
         # Read layer
         sql = f"SELECT * FROM {schema}.{table}"
-        gdf = gpd.read_postgis(sql, engine)
+        with engine.connect() as connection:
+            gdf = gpd.read_postgis(sql, connection)
 
     return gdf
 
@@ -1490,7 +1506,8 @@ def select_jhub_projects(eng):
         Dataframe of projects.
     """
     sql = "SELECT * FROM niva.projects"
-    df = pd.read_sql(sql, eng)
+    with eng.connect() as connection:
+        df = pd.read_sql(sql, connection)
 
     return df
 
@@ -1520,12 +1537,16 @@ def select_jhub_project_catchments(proj_ids, eng):
         "  WHERE project_id = %(proj_ids)s "
         ")"
     )
-    stn_gdf = gpd.read_postgis(sql, eng, params={"proj_ids": tuple(proj_ids)})
+    with eng.connect() as connection:
+        stn_gdf = gpd.read_postgis(
+            sql, connection, params={"proj_ids": tuple(proj_ids)}
+        )
 
     # Get catchments
     sql = "SELECT * from niva.catchments " "WHERE station_id IN %(stns)s"
     stns = tuple(stn_gdf["station_id"].tolist())
-    cat_gdf = gpd.read_postgis(sql, eng, params={"stns": stns})
+    with eng.connect() as connection:
+        cat_gdf = gpd.read_postgis(sql, connection, params={"stns": stns})
 
     # Join
     cat_gdf = cat_gdf.merge(
@@ -1558,33 +1579,36 @@ def select_jhub_project_catchments(proj_ids, eng):
     return (stn_gdf, cat_gdf)
 
 
-def authenticate_nve_hydapi():
-    """Attempts to read the user's API key for NVE's Hydrological API from a file
-        located at '/home/jovyan/.nve-hydapi-key'
-
-        The file is plain text and should have the following format:
-
-            [Auth]
-            key = your-api-key-here
-
-    Returns
-        API key.
+def authenticate_nve_hydapi(authfile_path=r"/home/jovyan/.nve-hydapi-key"):
     """
-    authfile = r"/home/jovyan/.nve-hydapi-key"
-    if os.path.isfile(authfile):
-        config = configparser.RawConfigParser()
-        try:
-            config.read(authfile)
-            api_key = config.get("Auth", "key")
+    Attempts to read the user's API key for NVE's Hydrological API from a file.
 
-            return api_key
+    Args:
+        authfile_path: Str. The path to the authentication file. Default is
+            '/home/jovyan/.nve-hydapi-key'.
 
-        except Exception as ex:
-            raise Exception("Could not read API key from file.")
-    else:
-        raise Exception(
-            "Could not find the file '/home/jovyan/.nve-hydapi-key'.\n"
-            "Either create this file (recommended) or specify your API key explictly in the function call."
+    Returns:
+        Str. The API key if the file exists and the key is found. Otherwise, raises
+        an exception.
+
+    Raises:
+        FileNotFoundError: If the authentication file does not exist.
+        KeyError: If the 'Auth' section or 'key' option is not found in the file.
+    """
+    if not os.path.isfile(authfile_path):
+        raise FileNotFoundError(
+            f"Could not find the file '{authfile_path}'.\n"
+            "Either create this file (recommended) or specify your API key explicitly in the function call."
+        )
+
+    config = configparser.ConfigParser()
+    config.read(authfile_path)
+
+    try:
+        return config.get("Auth", "key")
+    except (configparser.NoSectionError, configparser.NoOptionError):
+        raise KeyError(
+            "Could not read API key from file. Ensure the file has an 'Auth' section with a 'key' option."
         )
 
 
@@ -1626,7 +1650,9 @@ def get_nve_hydapi_stations(api_key=None):
     return df
 
 
-def query_nve_hydapi(stn_ids, par_ids, st_dt, end_dt, resolution=1440, api_key=None):
+def query_nve_hydapi(
+    stn_ids, par_ids, st_dt, end_dt, resolution=1440, api_key=None, series_ver=None
+):
     """Query data via NVE's Hydrological API (https://hydapi.nve.no/UserDocumentation/).
 
     Args:
@@ -1641,6 +1667,8 @@ def query_nve_hydapi(stn_ids, par_ids, st_dt, end_dt, resolution=1440, api_key=N
                     directly to the function. Instead, create a file containing your key and
                     store it in your HOME directory. See docstring for authenticate_nve_hydapi()
                     for further details
+        series_ver: Int or None. For series with multiple versions, the desired version can be
+                    specified. If None, returns the version with the most recent data.
     """
     assert dt.datetime.strptime(st_dt, "%Y-%m-%d") < dt.datetime.strptime(
         end_dt, "%Y-%m-%d"
@@ -1651,6 +1679,8 @@ def query_nve_hydapi(stn_ids, par_ids, st_dt, end_dt, resolution=1440, api_key=N
         api_key = authenticate_nve_hydapi()
 
     baseurl = "https://hydapi.nve.no/api/v1/Observations?StationId={stns}&Parameter={pars}&ResolutionTime={resolution}&ReferenceTime={st_dt}/{end_dt}"
+    if series_ver:
+        baseurl += f"&VersionNumber={series_ver}"
 
     par_ids = [str(i) for i in par_ids]
     stns = ",".join(stn_ids)
@@ -1830,43 +1860,49 @@ def get_nve_gts_api_time_series(
             x = int(row["x_proj"])
             y = int(row["y_proj"])
             url = f"http://gts.nve.no/api/GridTimeSeries/{x}/{y}/{st_dt}/{end_dt}/{par}.json"
-            request = Request(url)
-            response = urlopen(request)
-            content = json.loads(response.read().decode("utf-8"))
+            try:
+                request = Request(url)
+                response = urlopen(request)
+                content = json.loads(response.read().decode("utf-8"))
 
-            par_name = content["FullName"]
-            ndv = content["NoDataValue"]
-            unit = content["Unit"]
-            time_res = content["TimeResolution"]
-            alt = content["Altitude"]
-            data = content["Data"]
-            ser_start = pd.to_datetime(content["StartDate"], dayfirst=True)
-            ser_end = pd.to_datetime(content["EndDate"], dayfirst=True)
+                par_name = content["FullName"]
+                ndv = content["NoDataValue"]
+                unit = content["Unit"]
+                time_res = content["TimeResolution"]
+                alt = content["Altitude"]
+                data = content["Data"]
+                ser_start = pd.to_datetime(content["StartDate"], dayfirst=True)
+                ser_end = pd.to_datetime(content["EndDate"], dayfirst=True)
 
-            # Generate range of dates
-            if time_res == 1440:
-                dates = pd.date_range(ser_start, ser_end, freq="D")
-            else:
-                raise ValueError("Frequency not yet implemented.")
+                # Generate range of dates
+                if time_res == 1440:
+                    dates = pd.date_range(ser_start, ser_end, freq="D")
+                else:
+                    raise ValueError("Frequency not yet implemented.")
 
-            assert len(dates) == len(data), "Mismatch between length of dates and data."
+                assert len(dates) == len(
+                    data
+                ), "Mismatch between length of dates and data."
 
-            df = pd.DataFrame(
-                {
-                    id_col: loc_id,
-                    "x_utm_33n": x,
-                    "y_utm_33n": y,
-                    "altitude_m": alt,
-                    "par": par,
-                    "full_name": par_name,
-                    "unit": unit,
-                    "time_resolution": time_res,
-                    "datetime": dates,
-                    "value": data,
-                }
-            )
-            df.loc[df["value"] == ndv, "value"] = np.nan
-            df_list.append(df)
+                df = pd.DataFrame(
+                    {
+                        id_col: loc_id,
+                        "x_utm_33n": x,
+                        "y_utm_33n": y,
+                        "altitude_m": alt,
+                        "par": par,
+                        "full_name": par_name,
+                        "unit": unit,
+                        "time_resolution": time_res,
+                        "datetime": dates,
+                        "value": data,
+                    }
+                )
+                df.loc[df["value"] == ndv, "value"] = np.nan
+                df_list.append(df)
+
+            except HTTPError:
+                print(f"WARNING: No data for site '{loc_id}'.")
 
     df = pd.concat(df_list, axis="rows")
 
@@ -2324,11 +2360,11 @@ def get_era5land_cds_api_gridded(
         ymin < ymax
     ), "'xmin' and 'ymin' must be smaller than 'xmax' and 'ymax'."
 
-    shared_path = Path("/home/jovyan/shared")
+    shared_path = Path("/home/jovyan/shared/common")
     child_path = Path(out_nc_path)
     assert (
         shared_path in child_path.parents
-    ), "'out_nc_path' must be a folder on the 'shared' drive (data volumes may be large)."
+    ), "'out_nc_path' must be a folder on the 'shared/common' drive (data volumes may be large)."
 
     assert out_nc_path[-3:] == ".nc", "'out_nc_path' must be a .nc file."
 
@@ -2671,3 +2707,138 @@ def get_era5land_cds_api_aggregated_time_series(
         warnings.warn(msg)
 
     return res_df
+
+
+def get_data_from_vannmiljo(endpoint, params=None):
+    """Vannmiljø endpoints are documented here:
+
+        https://vannmiljoapi.miljodirektoratet.no/swagger/ui/index#!
+
+    This function can be used with any of the GET endpoints.
+
+    Args
+        endpoint: Str. Any of the GET endpoints listed for the API (e.g.
+                  'GetMediumList')
+        params:   Dict. Valid parameters for the chosen endpoint - see the
+                  Swagger UI for details. E.g. {'filter': 'BB'} for the
+                  'GetMediumList' endpoint
+
+    Returns
+        Dataframe.
+    """
+    headers = {
+        "Content-Type": "application/json",
+    }
+    url = f"https://vannmiljoapi.miljodirektoratet.no/api/Public/{endpoint}"
+    response = requests.get(url, headers=headers, params=params)
+
+    return pd.DataFrame(response.json())
+
+
+def get_vannmiljo_api_key():
+    """Get API key for POSTing to Vannmiljø."""
+    fpath = "/home/jovyan/shared/common/01_datasets/tokens/vannmiljo_api_token.json"
+    with open(fpath) as f:
+        data = json.loads(f.read())
+
+    return data["VANNMILJO_API_KEY"]
+
+
+def post_data_to_vannmiljo(endpoint, data=None):
+    """Vannmiljø endpoints are documented here:
+
+        https://vannmiljoapi.miljodirektoratet.no/swagger/ui/index#!
+
+    This function can be used with any of the POST endpoints.
+
+    Args
+        endpoint: Str. Any of the POST endpoints listed for the API (e.g.
+                  'GetRegistrations')
+        data:     Dict. Valid parameters for the chosen endpoint - see the
+                  Swagger UI for details. E.g.
+                      {'WaterLocationCodeFilter': ['002-58798']}
+                  for the 'GetRegistrations' endpoint
+
+    Returns
+        Dataframe.
+    """
+    headers = {
+        "vannmiljoWebAPIKey": get_vannmiljo_api_key(),
+        "Content-Type": "application/json",
+    }
+    url = f"https://vannmiljoapi.miljodirektoratet.no/api/Public/{endpoint}"
+    response = requests.post(url, headers=headers, data=json.dumps(data))
+
+    return pd.DataFrame(response.json()["Result"])
+
+
+def get_data_from_vannnett(wb_id, quality_element):
+    """
+    Fetches water quality data from the vann-nett service.
+
+    Parameters
+        wb_id: Str. The waterbody ID.
+        quality_element: Str. The quality element to fetch. Must be one of ['ecological',
+            'rbsp', 'swchemical'].
+
+    Returns
+        DataFrame of water quality data (if available) or None.
+    """
+    valid_elements = ["ecological", "rbsp", "swchemical"]
+    if quality_element.lower() not in valid_elements:
+        raise ValueError(
+            "'quality_element' must be one of ['ecological', 'rbsp', 'swchemical']."
+        )
+
+    element_dict = {
+        "ecological": "ecological",
+        "rbsp": "RBSP",
+        "swchemical": "swChemical",
+    }
+    quality_element = element_dict[quality_element.lower()]
+
+    url = f"https://vann-nett.no/service/waterbodies/{wb_id}/qualityElements/{quality_element}"
+    response = requests.get(url)
+    if response.status_code != 200:
+        response.raise_for_status()
+    data = response.json()
+
+    par_map = {
+        "qualityElementType.parentId": "category",
+        "qualityElementType.id": "element",
+        "parameterType.text": "parameter",
+        "status.text": "status",
+        "eqr": "eqr",
+        "neqr": "neqr",
+        "value": "value",
+        "threshold.refValue": "reference_value",
+        "threshold.unit": "unit",
+        "threshold.statusLimits": "status_limits",
+        "yearFrom": "year_from",
+        "yearTo": "year_to",
+        "sampleCount": "sample_count",
+        "otherSource": "source",
+        "dataQuality.text": "data_quality",
+    }
+    par_cols = par_map.keys()
+    df_list = []
+    cat_data = pd.json_normalize(data)
+    for cat_row in cat_data.itertuples():
+        ele_data = pd.json_normalize(cat_row.qualityElements)
+        for ele_row in ele_data.itertuples():
+            par_df = pd.json_normalize(ele_row.parameters)
+            if not par_df.empty:
+                par_df = par_df[par_cols].rename(columns=par_map)
+                par_df = par_df.dropna(axis="columns", how="all")
+                df_list.append(par_df)
+
+    if len(df_list) > 0:
+        df = pd.concat(df_list, ignore_index=True)
+        for col in par_map.values():
+            if col not in df.columns:
+                df[col] = np.nan
+        df["waterbody_id"] = wb_id
+        df = df[["waterbody_id"] + list(par_map.values())]
+        return df
+    else:
+        return None

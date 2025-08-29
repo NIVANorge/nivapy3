@@ -22,7 +22,9 @@ import pandas as pd
 import pyproj
 import rasterio
 import rasterio.mask
+import rioxarray as rio
 import xarray as xr
+from folium import Choropleth
 from folium.plugins import FastMarkerCluster, MarkerCluster
 from osgeo import gdal, ogr, osr
 from osgeo.gdalconst import GA_ReadOnly
@@ -45,7 +47,7 @@ def quickmap(
     lat_col="latitude",
     popup=None,
     cluster=False,
-    tiles="Stamen Terrain",
+    tiles="OpenStreetMap",
     aerial_imagery=False,
     kartverket=False,
     layer_name="Stations",
@@ -64,7 +66,7 @@ def quickmap(
                             - 'OpenStreetMap'
                             - 'Mapbox Bright' (Limited levels of zoom for free tiles)
                             - 'Mapbox Control Room' (Limited levels of zoom for free tiles)
-                            - 'Stamen' (Terrain, Toner, and Watercolor)
+                            - 'Stamen' (Terrain, Toner, and Watercolor; must pass API key)
                             - 'Cloudmade' (Must pass API key)
                             - 'Mapbox' (Must pass API key)
                             - 'CartoDB' (positron and dark_matter)
@@ -108,7 +110,7 @@ def quickmap(
 
     if kartverket:
         folium.raster_layers.TileLayer(
-            tiles="https://opencache.statkart.no/gatekeeper/gk/gk.open_gmaps?layers=topo4&zoom={z}&x={x}&y={y}",
+            tiles="https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png",
             attr="karkverket",
             name="Kartverket topographic",
             overlay=False,
@@ -190,7 +192,7 @@ def plot_vector(vec_path, fill_color="yellow", line_color="black", fill_opacity=
     gjson = gdf.to_json()
 
     # Map
-    m = folium.Map(location=[65, 10], zoom_start=4, tiles="Stamen Terrain")
+    m = folium.Map(location=[65, 10], zoom_start=4, tiles="OpenStreetMap")
 
     m.choropleth(
         geo_data=gjson,
@@ -218,7 +220,7 @@ def plot_polygons_overlay_points(
     pts_lon_col="longitude",
     pts_lat_col="latitude",
     pts_popup=None,
-    tiles="Stamen Terrain",
+    tiles="OpenStreetMap",
 ):
     """Plot a polygon vector dataset (e.g. .shp, .geojson) and overlay it with
     a point dataset.
@@ -243,7 +245,7 @@ def plot_polygons_overlay_points(
                              - 'OpenStreetMap'
                              - 'Mapbox Bright' (Limited levels of zoom for free tiles)
                              - 'Mapbox Control Room' (Limited levels of zoom for free tiles)
-                             - 'Stamen' (Terrain, Toner, and Watercolor)
+                             - 'Stamen' (Terrain, Toner, and Watercolor; must pass API key)
                              - 'Cloudmade' (Must pass API key)
                              - 'Mapbox' (Must pass API key)
                              - 'CartoDB' (positron and dark_matter)
@@ -431,7 +433,7 @@ def choropleth_from_gdf(
     gdf,
     val_col,
     geom="geom",
-    tiles="Stamen Terrain",
+    tiles="OpenStreetMap",
     fill_color="YlOrRd",
     fill_opacity=1,
     line_opacity=1,
@@ -448,7 +450,6 @@ def choropleth_from_gdf(
                         - 'OpenStreetMap'
                         - 'Mapbox Bright' (Limited levels of zoom for free tiles)
                         - 'Mapbox Control Room' (Limited levels of zoom for free tiles)
-                        - 'Stamen' (Terrain, Toner, and Watercolor)
                         - 'Cloudmade' (Must pass API key)
                         - 'Mapbox' (Must pass API key)
                         - 'CartoDB' (positron and dark_matter)
@@ -485,7 +486,8 @@ def choropleth_from_gdf(
     # Map
     m = folium.Map(location=[65, 10], zoom_start=4, tiles=tiles)
 
-    m.choropleth(
+    # Create choropleth
+    Choropleth(
         geo_data=gjson,
         data=data,
         columns=[idx, val_col],
@@ -494,7 +496,7 @@ def choropleth_from_gdf(
         fill_opacity=fill_opacity,
         line_opacity=line_opacity,
         legend_name=legend_name,
-    )
+    ).add_to(m)
 
     return m
 
@@ -799,56 +801,56 @@ def interp_idw(pts, z, gridx, gridy, n_near=8, p=1):
 class Invdisttree:
     """The code for this class is taken from:
 
-    http://stackoverflow.com/questions/3104781/inverse-distance-weighted-idw-interpolation-with-python
+        http://stackoverflow.com/questions/3104781/inverse-distance-weighted-idw-interpolation-with-python
 
-    inverse-distance-weighted interpolation using KDTree.
+        inverse-distance-weighted interpolation using KDTree.
 
-    invdisttree = Invdisttree( X, z )  -- data points, values
-    interpol = invdisttree( q, nnear=3, eps=0, p=1, weights=None, stat=0 )
+        invdisttree = Invdisttree( X, z )  -- data points, values
+        interpol = invdisttree( q, nnear=3, eps=0, p=1, weights=None, stat=0 )
 
-    interpolates z from the 3 points nearest each query point q;
-    For example, interpol[ a query point q ]
-    finds the 3 data points nearest q, at distances d1 d2 d3
-    and returns the IDW average of the values z1 z2 z3
-        (z1/d1 + z2/d2 + z3/d3)
-        / (1/d1 + 1/d2 + 1/d3)
-        = .55 z1 + .27 z2 + .18 z3  for distances 1 2 3
+        interpolates z from the 3 points nearest each query point q;
+        For example, interpol[ a query point q ]
+        finds the 3 data points nearest q, at distances d1 d2 d3
+        and returns the IDW average of the values z1 z2 z3
+            (z1/d1 + z2/d2 + z3/d3)
+            / (1/d1 + 1/d2 + 1/d3)
+            = .55 z1 + .27 z2 + .18 z3  for distances 1 2 3
 
-    q may be one point, or a batch of points.
-    eps: approximate nearest, dist <= (1 + eps) * true nearest
-    p: use 1 / distance**p
-    weights: optional multipliers for 1 / distance**p, of the same shape as q
-    stat: accumulate wsum, wn for average weights
+        q may be one point, or a batch of points.
+        eps: approximate nearest, dist <= (1 + eps) * true nearest
+        p: use 1 / distance**p
+        weights: optional multipliers for 1 / distance**p, of the same shape as q
+        stat: accumulate wsum, wn for average weights
 
     How many nearest neighbors should one take ?
-    a) start with 8 11 14 .. 28 in 2d 3d 4d .. 10d; see Wendel's formula
-    b) make 3 runs with nnear= e.g. 6 8 10, and look at the results --
-        |interpol 6 - interpol 8| etc., or |f - interpol*| if you have f(q).
-        I find that runtimes don't increase much at all with nnear -- ymmv.
+        a) start with 8 11 14 .. 28 in 2d 3d 4d .. 10d; see Wendel's formula
+        b) make 3 runs with nnear= e.g. 6 8 10, and look at the results --
+            |interpol 6 - interpol 8| etc., or |f - interpol*| if you have f(q).
+            I find that runtimes don't increase much at all with nnear -- ymmv.
 
     p=1, p=2 ?
-        p=2 weights nearer points more, farther points less.
-        In 2d, the circles around query points have areas ~ distance**2,
-        so p=2 is inverse-area weighting. For example,
-            (z1/area1 + z2/area2 + z3/area3)
-            / (1/area1 + 1/area2 + 1/area3)
-            = .74 z1 + .18 z2 + .08 z3  for distances 1 2 3
-        Similarly, in 3d, p=3 is inverse-volume weighting.
+            p=2 weights nearer points more, farther points less.
+            In 2d, the circles around query points have areas ~ distance**2,
+            so p=2 is inverse-area weighting. For example,
+                (z1/area1 + z2/area2 + z3/area3)
+                / (1/area1 + 1/area2 + 1/area3)
+                = .74 z1 + .18 z2 + .08 z3  for distances 1 2 3
+            Similarly, in 3d, p=3 is inverse-volume weighting.
 
-    Scaling:
-        if different X coordinates measure different things, Euclidean distance
-        can be way off.  For example, if X0 is in the range 0 to 1
-        but X1 0 to 1000, the X1 distances will swamp X0;
-        rescale the data, i.e. make X0.std() ~= X1.std().
+        Scaling:
+            if different X coordinates measure different things, Euclidean distance
+            can be way off.  For example, if X0 is in the range 0 to 1
+            but X1 0 to 1000, the X1 distances will swamp X0;
+            rescale the data, i.e. make X0.std() ~= X1.std().
 
-    A nice property of IDW is that it's scale-free around query points:
-    if I have values z1 z2 z3 from 3 points at distances d1 d2 d3,
-    the IDW average
-        (z1/d1 + z2/d2 + z3/d3)
-        / (1/d1 + 1/d2 + 1/d3)
-    is the same for distances 1 2 3, or 10 20 30 -- only the ratios matter.
-    In contrast, the commonly-used Gaussian kernel exp( - (distance/h)**2 )
-    is exceedingly sensitive to distance and to h.
+        A nice property of IDW is that it's scale-free around query points:
+        if I have values z1 z2 z3 from 3 points at distances d1 d2 d3,
+        the IDW average
+            (z1/d1 + z2/d2 + z3/d3)
+            / (1/d1 + 1/d2 + 1/d3)
+        is the same for distances 1 2 3, or 10 20 30 -- only the ratios matter.
+        In contrast, the commonly-used Gaussian kernel exp( - (distance/h)**2 )
+        is exceedingly sensitive to distance and to h.
     """
 
     def __init__(self, X, z, leafsize=10, stat=0):
@@ -998,187 +1000,6 @@ def zonal_statistics(
     return gdf
 
 
-def zonal_statistics_old(
-    vector_path,
-    raster_path,
-    nodata_value=None,
-    global_src_extent=False,
-    categorical=False,
-    category_map=None,
-):
-    """Summarise raster values based on zones defined in a vector layer. Unlike the
-    tools available in ArcGIS, this function can deal with overlapping vector zones.
-    Original code modified from:
-
-        https://gist.github.com/perrygeo/5667173
-
-    (copyright 2013 Matthew Perry).
-
-    Args:
-        vector_path:       Raw str. Path to vector dataset (e.g. shp)
-        raster_path:       Raw str. Path to raster dataset (e.g. geotiff)
-        nodata_value:      Float. Value in raster to treat as NoData
-        global_src_extent: Bool. If True, reads all data into memory in a single
-                           pass. May be faster, but also takes up loats of memory
-                           when used with large vector or raster datasets
-        categorical:       Bool. If true, raster is assumed to be categorical, with
-                           integer values representing different categories (e.g. land
-                           use). In this case, the statistics returned are pixel counts
-                           of each category within each vector zone
-        category_map:      Dict. Only used when "categorical" is True. Dict mapping
-                           integer values to category names {int_id:'cat_name'}. If
-                           supplied, the integer categories in the results dataframe
-                           will be mapped to the specified category names
-
-    Returns:
-        Dataframe of raster statistics.
-    """
-    print(
-        "WARNING: This function os deprecated. Consider 'nivapy.spatial.zonal_statistics' instead."
-    )
-
-    gdal.PushErrorHandler("CPLQuietErrorHandler")
-
-    rds = gdal.Open(raster_path, GA_ReadOnly)
-    assert rds
-    rb = rds.GetRasterBand(1)
-    rgt = rds.GetGeoTransform()
-
-    if nodata_value:
-        nodata_value = float(nodata_value)
-        rb.SetNoDataValue(nodata_value)
-
-    vds = ogr.Open(
-        vector_path, GA_ReadOnly
-    )  # TODO maybe open update if we want to write stats
-    assert vds
-    vlyr = vds.GetLayer(0)
-
-    # create an in-memory numpy array of the source raster data
-    # covering the whole extent of the vector layer
-    if global_src_extent:
-        # use global source extent
-        # useful only when disk IO or raster scanning inefficiencies are your limiting factor
-        # advantage: reads raster data in one pass
-        # disadvantage: large vector extents may have big memory requirements
-        src_offset = bbox_to_pixel_offsets(rgt, vlyr.GetExtent())
-        src_array = rb.ReadAsArray(*src_offset)
-
-        # calculate new geotransform of the layer subset
-        new_gt = (
-            (rgt[0] + (src_offset[0] * rgt[1])),
-            rgt[1],
-            0.0,
-            (rgt[3] + (src_offset[1] * rgt[5])),
-            0.0,
-            rgt[5],
-        )
-
-    mem_drv = ogr.GetDriverByName("Memory")
-    driver = gdal.GetDriverByName("MEM")
-
-    # Loop through vectors
-    stats = []
-    feat = vlyr.GetNextFeature()
-    while feat is not None:
-        if not global_src_extent:
-            # use local source extent
-            # fastest option when you have fast disks and well indexed raster (ie tiled Geotiff)
-            # advantage: each feature uses the smallest raster chunk
-            # disadvantage: lots of reads on the source raster
-            src_offset = bbox_to_pixel_offsets(rgt, feat.geometry().GetEnvelope())
-            src_array = rb.ReadAsArray(*src_offset)
-
-            # calculate new geotransform of the feature subset
-            new_gt = (
-                (rgt[0] + (src_offset[0] * rgt[1])),
-                rgt[1],
-                0.0,
-                (rgt[3] + (src_offset[1] * rgt[5])),
-                0.0,
-                rgt[5],
-            )
-
-        # Create a temporary vector layer in memory
-        mem_ds = mem_drv.CreateDataSource("out")
-        mem_layer = mem_ds.CreateLayer("poly", None, ogr.wkbPolygon)
-        mem_layer.CreateFeature(feat.Clone())
-
-        # Rasterize it
-        rvds = driver.Create("", src_offset[2], src_offset[3], 1, gdal.GDT_Byte)
-        rvds.SetGeoTransform(new_gt)
-        gdal.RasterizeLayer(rvds, [1], mem_layer, burn_values=[1])
-        rv_array = rvds.ReadAsArray()
-
-        # Mask the source data array with our current feature
-        # Take the logical_not to flip 0<->1 to get the correct mask effect
-        # Also mask out nodata and NaN values explictly
-        masked = np.ma.MaskedArray(
-            src_array,
-            mask=(
-                (src_array == nodata_value)
-                | np.isnan(src_array)
-                | np.logical_not(rv_array)
-            ),
-        )
-
-        if categorical:
-            # Get cell counts for each category
-            keys, counts = np.unique(masked.compressed(), return_counts=True)
-            pixel_count = dict(
-                zip([int(k) for k in keys], [int(c) for c in counts])
-            )
-
-            feature_stats = dict(pixel_count)
-            if category_map:
-                feature_stats = remap_categories(category_map, feature_stats)
-
-        else:
-            # Get summary stats
-            feature_stats = {
-                "min": float(masked.min()),
-                "mean": float(masked.mean()),
-                "max": float(masked.max()),
-                "std": float(masked.std()),
-                "sum": float(masked.sum()),
-                "count": int(masked.count()),
-                "fid": int(feat.GetFID()),
-            }
-
-        stats.append(feature_stats)
-
-        rvds = None
-        mem_ds = None
-        feat = vlyr.GetNextFeature()
-
-    vds = None
-    rds = None
-
-    return pd.DataFrame(stats)
-
-
-def rebin_array(a, scale_factor):
-    """Resample an array to a new shape using the nearest neighbour technique.
-
-    Args:
-        a:            Array to resample.
-        scale_factor: Rescaling factor calculated as
-                      orig_side_len / desired_side_len
-
-    Returns:
-        Resampled array.
-    """
-    # Calculate new shape for array
-    newshape = tuple([i * scale_factor for i in a.shape])
-
-    # Perform resampling
-    slices = [slice(0, old, float(old) / new) for old, new in zip(a.shape, newshape)]
-    coordinates = np.mgrid[slices]
-    indices = coordinates.astype("i")
-
-    return a[tuple(indices)]
-
-
 def shp_to_ras(in_shp, out_tif, snap_tif, attrib, ndv, data_type, fmt="GTiff"):
     """Converts a shapefile to a raster with values taken from the 'attrib' field.
     The 'snap_tif' is used to set the resolution and extent of the output raster.
@@ -1240,7 +1061,7 @@ def plot_norway_point_data(
 ):
     """ """
     # Check inputs
-    assert par != None, '"par" argument must be specified.'
+    assert par is not None, '"par" argument must be specified.'
 
     # Define co-ord system
     crs = ccrs.AlbersEqualArea(
@@ -1688,7 +1509,7 @@ def plot_raster(
     ), "'ds_or_path' must be a file path or an xarray DataArray."
 
     if isinstance(ds_or_path, str):
-        ds = xr.open_rasterio(ds_or_path)
+        ds = rio.open_rasterio(ds_or_path)
     else:
         ds = ds_or_path
 
@@ -1696,11 +1517,8 @@ def plot_raster(
     fig = plt.figure(figsize=figsize)
 
     # Build area definition
-    proj_string = ds.attrs["crs"]
-
-    x_cell_size = ds.attrs["res"][0]
-    y_cell_size = ds.attrs["res"][1]
-
+    proj_string = ds.rio.crs.to_proj4()
+    x_cell_size, y_cell_size = tuple(abs(i) for i in ds.rio.resolution())
     xmin = ds["x"].values.min() - (x_cell_size / 2)
     xmax = ds["x"].values.max() + (x_cell_size / 2)
     ymin = ds["y"].values.min() - (y_cell_size / 2)
@@ -1711,7 +1529,6 @@ def plot_raster(
         crs = ccrs.PlateCarree()
         ax = fig.add_subplot(1, 1, 1, projection=crs)
         ax.set_extent([xmin, xmax, ymin, ymax], crs=crs)
-
     else:
         area_extent = (xmin, ymin, xmax, ymax)
         area_def = AreaDefinition(
@@ -1727,7 +1544,7 @@ def plot_raster(
         ax = fig.add_subplot(1, 1, 1, projection=crs)
 
     # Mask no data
-    ndv = ds.attrs["nodatavals"][0]
+    ndv = ds.rio.nodata
     ds2 = ds.where(ds != ndv)
 
     # Plot
@@ -1839,57 +1656,6 @@ def get_natural_earth_country_names():
     country_list.sort()
 
     return country_list
-
-
-def downsample_raster(ds, scale_factor):
-    """Downsample a single-band raster to a lower resulution. First read the raster
-    with xarray using
-
-        ds = xr.open_rasterio('path/to/raster')
-
-    For the moment, scale_factor must be an odd integer. For example, if the
-    original raster has a cell size of 1 and scale factor is 5, the downsampled
-    raster will have a cell size of 5.
-
-    Args:
-        ds:           DataArray. Single band xarray data array
-        scale_factor: Int. Odd integer
-
-    Returns:
-        DataArray. Single band xarray DataArray with larger cell size.
-    """
-    assert isinstance(scale_factor, int), "'scale_factor' must be an odd integer."
-
-    if scale_factor % 2 == 0:
-        # Even
-        raise ValueError("'scale_factor' must be an odd integer.")
-    else:
-        # Downsample
-        rebinned = rebin_array(ds.values, 1 / scale_factor)
-        if len(rebinned.shape) == 2:
-            rebinned = rebinned[np.newaxis, :]
-        x = ds["x"][::scale_factor]
-        y = ds["y"][::scale_factor]
-        band = np.array([1])
-
-        rebinned_ds = xr.DataArray(
-            rebinned, coords=[band, y, x], dims=["band", "y", "x"]
-        )
-
-        # Add metadata
-        rebinned_ds.attrs["crs"] = ds.attrs["crs"]
-        rebinned_ds.attrs["is_tiled"] = ds.attrs["is_tiled"]
-        rebinned_ds.attrs["nodatavals"] = ds.attrs["nodatavals"]
-
-        trans = list(ds.attrs["transform"])
-        trans[0] = trans[0] * scale_factor
-        trans[4] = trans[4] * scale_factor
-        trans = tuple(trans)
-        rebinned_ds.attrs["transform"] = trans
-
-        rebinned_ds.attrs["res"] = tuple([i * scale_factor for i in ds.attrs["res"]])
-
-        return rebinned_ds
 
 
 def get_features(gdf):
@@ -2130,11 +1896,11 @@ def derive_watershed_boundaries(
             temp_fold, (str)
         ), "'temp_fold' is required when 'buffer_km' is specified."
 
-        shared_path = Path("/home/jovyan/shared")
+        shared_path = Path("/home/jovyan/shared/common")
         child_path = Path(temp_fold)
         assert (
             shared_path in child_path.parents
-        ), "'temp_fold' must be a folder on the 'shared' drive."
+        ), "'temp_fold' must be a folder on the 'shared/common' drive."
 
     if temp_fold:
         assert buffer_km, "'buffer_km' is required when 'temp_fold' is specified."
@@ -2175,21 +1941,21 @@ def derive_watershed_boundaries(
         if method == "pysheds":
             dirmap = (1, 2, 3, 4, 5, 6, 7, 8)
             vassom_fdir_path = (
-                f"/home/jovyan/shared/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
+                f"/home/jovyan/shared/common/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
                 f"/by_vassom/flow_direction/vassom_{vassom}_{dem_res_m}m_fdir.tif"
             )
             vassom_facc_path = (
-                f"/home/jovyan/shared/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
+                f"/home/jovyan/shared/common/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
                 f"/by_vassom/flow_accumulation/vassom_{vassom}_{dem_res_m}m_facc.tif"
             )
         elif method == "wbt":
             dirmap = (128, 1, 2, 4, 8, 16, 32, 64)
             vassom_fdir_path = (
-                f"/home/jovyan/shared/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
+                f"/home/jovyan/shared/common/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
                 f"/by_vassom/wbt_fdir/vassom_{vassom}_{dem_res_m}m_fdir.tif"
             )
             vassom_facc_path = (
-                f"/home/jovyan/shared/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
+                f"/home/jovyan/shared/common/01_datasets/spatial/dtm_merged_utm33/dtm_{dem_res_m}m"
                 f"/by_vassom/wbt_facc/vassom_{vassom}_{dem_res_m}m_facc.tif"
             )
         else:
@@ -2699,3 +2465,57 @@ def get_land_cover_for_polygons(
         lc_gdf = lc_gdf[cols]
 
     return lc_gdf
+
+
+def intercatchments_from_catchments(gdf, id_col):
+    """(Sub-)Catchment boundaries derived for outflow points will often overlap.
+    In many cases, we want non-overlapping "intercatchments" rather than true
+    catchments.
+
+    This function generates intercatchments from true sub-catchments.
+
+    NOTE: This function is rough and needs proper testing.
+
+    Args
+        gdf:    Geodataframe. Polygons of "true" overlapping (sub-)catchments
+        id_col: Str. Name of column in 'gdf' containing a unique ID for each
+                sub-catchment.
+
+    Returns
+        Geodataframe of non-overlapping intercatchments.
+    """
+    assert all(
+        gdf.geometry.geom_type.isin(["Polygon", "MultiPolygon"])
+    ), "'gdf' must only contain Polygons or MultiPolygons."
+    assert gdf.crs is not None, "'gdf' does not have a valid CRS."
+    assert gdf[id_col].is_unique, f"Column '{id_col}' is not unique."
+
+    gdf = gdf.copy()
+
+    # Sort by area from largest to smallest
+    gdf["original_order"] = np.arange(len(gdf))
+    gdf["area_temp_km2"] = gdf.to_crs({"proj": "cea"}).geometry.area / 1e6
+    gdf.sort_values("area_temp_km2", ascending=False, inplace=True)
+
+    # Create a new GeoDataFrame to store the result
+    inter_gdf = gpd.GeoDataFrame(columns=gdf.columns)
+
+    # Clip each polygon with all those that are smaller
+    for i, (index, row) in enumerate(gdf.iterrows()):
+        cat_poly = gdf.iloc[i].geometry
+        small_polys = gdf.iloc[i + 1 :].geometry
+
+        # Subtract the smaller overlapping areas from the current polygon
+        for small_poly in small_polys:
+            cat_poly = cat_poly.difference(small_poly)
+
+        # Assign the resulting polygon to the row's geometry
+        row.geometry = cat_poly
+        inter_gdf = pd.concat([inter_gdf, gpd.GeoDataFrame(row).T], ignore_index=True)
+
+    # Tidy
+    inter_gdf = inter_gdf.sort_values(by="original_order").reset_index(drop=True)
+    inter_gdf = inter_gdf.drop(columns=["area_temp_km2", "original_order"])
+    inter_gdf.crs = gdf.crs
+
+    return inter_gdf
