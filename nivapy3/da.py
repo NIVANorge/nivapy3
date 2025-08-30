@@ -73,7 +73,7 @@ def connect(src="nivabase", db_name=None, port=5432):
 
     if src == "nivabase":
         conn_str = (
-            f"oracle+cx_oracle://{user}:{pw}@DBORA-NIVA-PROD01.NIVA.CORP:1555/NIVABPRD"
+            f"oracle+oracledb://{user}:{pw}@DBORA-NIVA-PROD01.NIVA.CORP:1555/NIVABPRD"
         )
     else:
         conn_str = (
