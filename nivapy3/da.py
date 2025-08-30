@@ -867,14 +867,14 @@ def select_ndb_water_chemistry(
 
     # Restructure data
     del df["entered_date"]
-    df["parameter_name"].fillna("", inplace=True)
-    df["unit"].fillna("", inplace=True)
+    df["parameter_name"] = df["parameter_name"].fillna("")
+    df["unit"] = df["unit"].fillna("")
     df["par_unit"] = df["parameter_name"].astype(str) + "_" + df["unit"].astype(str)
     del df["parameter_name"], df["unit"]
 
     # Include LOD flags?
     if lod_flags:
-        df["flag1"].fillna("", inplace=True)
+        df["flag1"] = df["flag1"].fillna("")
         df["value"] = df["flag1"].astype(str) + df["value"].astype(str)
         del df["flag1"]
 
