@@ -7,7 +7,7 @@ import pandas as pd
 import seaborn as sn
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
-from scipy.stats import norm, theilslopes, pearsonr
+from scipy.stats import norm, pearsonr, theilslopes
 from sklearn.preprocessing import StandardScaler
 
 
@@ -361,7 +361,7 @@ def adjust_lod_values(df, date_col="sample_date", agg_freq="none"):
         Dataframe. LOQ/LOD values are adjusted according to the method described above. The
         'par_flag' columns are also removed to avoid confusion (as they no longer apply to the
         values in the dataframe).
-    """    
+    """
     df = df.copy()
 
     # Get list of chem cols
@@ -458,9 +458,9 @@ def estimate_fluxes(
     Args:
         q_df:      Dataframe. Must have a datetime index and a column named 'flow_m3/s'
         chem_df:   Dataframe. Must have a datetime index and each column named 'parname_unit' - see above
-        base_freq: Str. 'D' for daily; 'ME' for monthly ("month end"); 'YE' for annual ("year end") etc. The initial 
+        base_freq: Str. 'D' for daily; 'ME' for monthly ("month end"); 'YE' for annual ("year end") etc. The initial
                    data frequency for q_df and chem_df
-        agg_freq:  Str.  'D' for daily; 'ME' for monthly ("month end"); 'YE' for annual ("year end") etc. The 
+        agg_freq:  Str.  'D' for daily; 'ME' for monthly ("month end"); 'YE' for annual ("year end") etc. The
                    frequency at which fluxes should be reported
         method:    Str. One of ['linear_interpolation', 'simple_means', 'log_log_linear_regression', 'ospar_annual']
         st_dt:     Str. Only consider values after this date. Format: 'YYYY-MM-DD'
@@ -633,35 +633,30 @@ def fluxes_linear_interp(df):
 
 def fluxes_log_log_linear_regression(df, plot_fold=None):
     """Called by estimate_fluxes."""
-    df = df.copy()
+    df_copy = df.copy()
 
-    # Convert zero => NaN
-    if np.count_nonzero(df == 0) > 0:
+    # Convert zeros to NaN to prevent log(0) errors.
+    if (df_copy == 0).any().any():
         print(
-            "Warning: Dataframe contains zeros. These will be converted to NaN before taking logs."
+            "Warning: DataFrame contains zeros. These will be converted to NaN before taking logs."
         )
-        df[df == 0] = np.nan
+        df_copy.replace(0, np.nan, inplace=True)
 
-    # Patch missing in flow series
-    n_nan = df["flow_m3/s"].isna().sum()
-    if n_nan > 0:
+    # Patch missing values in the flow series.
+    n_nan_flow = df_copy["flow_m3/s"].isna().sum()
+    if n_nan_flow > 0:
         print(
-            "Warning: 'q_df' has missing values. These will be patched using linear interpolation and "
-            "forward-/back-filling, as necessary."
+            f"Warning: 'flow_m3/s' has {n_nan_flow} missing values. "
+            "These will be patched using linear interpolation."
+        )
+        df_copy["flow_m3/s"] = df_copy["flow_m3/s"].interpolate(
+            method="linear", limit_direction="both"
         )
 
-        # Interpolate
-        df["flow_m3/s"] = df["flow_m3/s"].interpolate(kind="linear")
-        df["flow_m3/s"] = df["flow_m3/s"].bfill()
+    df_logged = np.log10(df_copy)
 
-    # Get logged data (base-10)
-    df = np.log10(df)
-
-    # Regression
-    chem_cols = list(df.columns)
-    chem_cols.remove("flow_m3/s")
-
-    # Containers for results
+    # Linear Regression
+    chem_cols = [col for col in df_logged.columns if col != "flow_m3/s"]
     res_dict = {
         "param": [],
         "slope": [],
@@ -670,81 +665,90 @@ def fluxes_log_log_linear_regression(df, plot_fold=None):
     }
 
     for col in chem_cols:
-        # OLS regression
-        res = smf.ols(formula='Q("%s") ~ Q("flow_m3/s")' % col, data=df).fit()
+        formula = f'Q("{col}") ~ Q("flow_m3/s")'
+        try:
+            res = smf.ols(formula=formula, data=df_logged).fit()
+        except Exception as e:
+            print(f"Error during regression for {col}: {e}")
+            continue
 
+        # Generate diagnostic plots if a folder is provided.
         if plot_fold:
-            # Plot diagnotsics
             fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(10, 5))
-
             axes[0].plot(res.model.exog[:, 1], res.resid, "ro")
-            axes[0].set_xlabel("log[Flow (m3/s)]")
+            axes[0].set_xlabel("log[Flow (m³/s)]")
             axes[0].set_ylabel("Residual")
-
-            sn.distplot(res.resid.values, ax=axes[1])
+            sn.histplot(res.resid.values, kde=True, ax=axes[1])
             axes[1].set_xlabel("Residual")
-
-            plt.suptitle(col)
+            axes[1].set_ylabel("Frequency")
+            plt.suptitle(f"Regression Diagnostics for {col}")
             plt.tight_layout()
 
-            # Save png
-            png_path = os.path.join(plot_fold, col.split("_")[0] + ".png")
+            # Save the plot.
+            file_name = f"{col.split('_')[0]}.png"
+            png_path = os.path.join(plot_fold, file_name)
             plt.savefig(png_path, dpi=300)
             plt.close()
 
+        # Check the R-squared value.
         if res.rsquared < 0.5:
             print(
-                f"Warning: R2 for regression between log({col}) and log(Q) is < 0.5. "
-                "Consider using a different method?"
+                f"WARNING: R² for regression of log({col}) vs log(Q) is < 0.5. "
+                "The relationship is weak, consider using a different method."
             )
 
-        # Calc C, inc. correction back-transformation bias. See here:
-        # https://nbviewer.jupyter.org/github/JamesSample/martini/blob/master/notebooks/process_norway_chem.ipynb#3.-Concentration-discharge-relationships
-        concs = (10 ** res.params.iloc[0]) * (df["flow_m3/s"] ** res.params.iloc[1])
-
-        # Bias correction
-        alpha = np.exp(2.651 * ((res.resid.values) ** 2).mean())
+        # Calculate concentrations with bias correction
+        concs = (10 ** res.params.loc["Intercept"]) * (
+            df_copy["flow_m3/s"] ** res.params.loc['Q("flow_m3/s")']
+        )
+        alpha = np.exp(2.651 * (res.resid.values**2).mean())
         concs = alpha * concs
 
-        # Update series
-        df[col] = df[col].fillna(concs)
+        # Fill missing values in the original DataFrame with the calculated concentrations.
+        df_copy[col] = df_copy[col].fillna(concs)
 
-        # Add to results
+        # Store regression results.
         res_dict["param"].append(col)
-        res_dict["slope"].append(res.params.iloc[1])
-        res_dict["intercept"].append(res.params.iloc[0])
+        res_dict["slope"].append(res.params.loc['Q("flow_m3/s")'])
+        res_dict["intercept"].append(res.params.loc["Intercept"])
         res_dict["r_squared"].append(res.rsquared)
 
     print("Regression results:")
     res_df = pd.DataFrame(res_dict)
     print(res_df)
 
-    assert np.count_nonzero(np.isnan(df)) == 0
-
-    # Convert flow to volume
-    n_secs = (df.index[1] - df.index[0]).total_seconds()
-    df["flow_m3"] = df["flow_m3/s"] * n_secs
-    del df["flow_m3/s"]
-
     # Calculate fluxes
-    chem_cols = list(df.columns)
-    chem_cols.remove("flow_m3")
+    n_secs = (df_copy.index[1] - df_copy.index[0]).total_seconds()
+    df_copy["flow_m3"] = df_copy["flow_m3/s"] * n_secs
 
-    # Dict of unit conversions
+    # Define unit conversions (concentration unit to kg).
     unit_conv_dict = {
         "mg/l": 1e6,  # mg => kg
         "ug/l": 1e9,  # ug => kg
-        "µg/l": 1e9,  # ug => kg
+        "µg/l": 1e9,  # µg => kg
         "ng/l": 1e12,  # ng => kg
     }
-
-    # Loop over chem pars
     for col in chem_cols:
-        par, unit = col.split("_")
-        df["%s_kg" % par] = df["flow_m3"] * df[col] * 1000 / unit_conv_dict[unit]
-        del df[col]
+        try:
+            par, unit = col.split("_")
+            unit_factor = unit_conv_dict.get(unit)
+            if unit_factor is None:
+                raise ValueError(f"Unknown unit for flux calculation: {unit}")
 
-    return df
+            # Flux (kg) = Volume (m³) * Concentration (unit/L) * (1000 L/m³) / unit_factor
+            flux_col_name = f"{par}_kg"
+            df_copy[flux_col_name] = (
+                df_copy["flow_m3"] * df_copy[col] * 1000 / unit_factor
+            )
+            df_copy.drop(columns=[col], inplace=True)
+        except ValueError as e:
+            print(f"Skipping flux calculation for {col}: {e}")
+
+    # Remove the intermediate columns.
+    df_copy.drop(columns=["flow_m3/s"], inplace=True)
+    assert np.count_nonzero(df_copy.isna()) == 0
+
+    return df_copy
 
 
 def fluxes_ospar_annual(df):
@@ -937,7 +941,7 @@ def double_mad_from_median(data, thresh=3.5):
     abs_dev = np.abs(data - m)
     left_mad = np.median(abs_dev[data <= m])
     right_mad = np.median(abs_dev[data >= m])
-    
+
     # if (left_mad == 0) or (right_mad == 0):
     #     # Don't identify any outliers. Not strictly correct - see last section of
     #     # https://eurekastatistics.com/using-the-median-absolute-deviation-to-find-outliers/
@@ -958,37 +962,42 @@ def double_mad_from_median(data, thresh=3.5):
 
 
 def target_plot(mod, obs, ax=None, title=None):
-    """ Target plot comparing normalised bias and normalised, unbiased RMSD between two 
-        datasets (usually modelled versus observed). Based on code written by Leah 
-        Jackson-Blake for the REFRESH project and described in the REFRESH report as 
+    """Target plot comparing normalised bias and normalised, unbiased RMSD between two
+        datasets (usually modelled versus observed). Based on code written by Leah
+        Jackson-Blake for the REFRESH project and described in the REFRESH report as
         follows:
-        
-            "The y-axis shows normalised bias between simulated and observed. The 
-             x-axis is the unbiased, normalised root mean square difference (RMSD) 
+
+            "The y-axis shows normalised bias between simulated and observed. The
+             x-axis is the unbiased, normalised root mean square difference (RMSD)
              between simulated and observed data. The distance between a point and the
-             origin is total RMSD. RMSD = 1 is shown by the solid circle (any point 
-             within this has positively correlated simulated and observed data and 
-             positive Nash Sutcliffe scores); the dashed circle marks RMSD = 0.7. 
-             Normalised unbiased root mean squared deviation is a useful way of 
+             origin is total RMSD. RMSD = 1 is shown by the solid circle (any point
+             within this has positively correlated simulated and observed data and
+             positive Nash Sutcliffe scores); the dashed circle marks RMSD = 0.7.
+             Normalised unbiased root mean squared deviation is a useful way of
              comparing standard deviations of the observed and modelled datasets."
-             
+
         See Joliff et al. (2009) for full details:
-        
+
             https://www.sciencedirect.com/science/article/pii/S0924796308001140
-            
+
     Args:
         mod:   Array-like. 1D array or list of modelled values
         obs:   Array-like. 1D array or list of observed/reference values
         ax:    Matplotlib axis or None. Optional. Axis on which to plot, if desired
         title: Str. Optional. Title for plot
-             
+
     Returns:
         Tuple (normalised_bias, normalised_unbiased_rmsd). Plot is created.
     """
     assert len(mod) == len(obs), "'mod' and 'obs' must be the same length."
 
     # Convert to dataframe
-    df = pd.DataFrame({"mod": np.array(mod), "obs": np.array(obs),})
+    df = pd.DataFrame(
+        {
+            "mod": np.array(mod),
+            "obs": np.array(obs),
+        }
+    )
 
     # Drop null
     if df.isna().sum().sum() > 0:
@@ -1003,7 +1012,7 @@ def target_plot(mod, obs, ax=None, title=None):
     pearson_cc, pearson_p = pearsonr(mod, obs)
     normed_std_dev = mod.std() / obs.std()
     normed_unbiased_rmsd = (
-        1.0 + normed_std_dev ** 2 - (2 * normed_std_dev * pearson_cc)
+        1.0 + normed_std_dev**2 - (2 * normed_std_dev * pearson_cc)
     ) ** 0.5
     normed_unbiased_rmsd = np.copysign(normed_unbiased_rmsd, mod.std() - obs.std())
 
