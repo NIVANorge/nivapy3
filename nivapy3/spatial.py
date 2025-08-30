@@ -26,6 +26,7 @@ import rioxarray as rio
 import xarray as xr
 from folium import Choropleth
 from folium.plugins import FastMarkerCluster, MarkerCluster
+from functools import reduce
 from osgeo import gdal, ogr, osr
 from osgeo.gdalconst import GA_ReadOnly
 from pyresample.geometry import AreaDefinition
@@ -1529,6 +1530,7 @@ def plot_raster(
         ax = fig.add_subplot(1, 1, 1, projection=crs)
         ax.set_extent([xmin, xmax, ymin, ymax], crs=crs)
     else:
+        proj_string = ds.rio.crs.to_wkt()
         area_extent = (xmin, ymin, xmax, ymax)
         area_def = AreaDefinition(
             "area_id",
