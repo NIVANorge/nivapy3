@@ -1524,7 +1524,7 @@ def plot_raster(
     ymax = ds["y"].values.max() + (y_cell_size / 2)
 
     # Pyresample doesn't seems to cope well with EPSG 4326
-    if if ds.rio.crs.is_geographic:
+    if ds.rio.crs.is_geographic:
         crs = ccrs.PlateCarree()
         ax = fig.add_subplot(1, 1, 1, projection=crs)
         ax.set_extent([xmin, xmax, ymin, ymax], crs=crs)
