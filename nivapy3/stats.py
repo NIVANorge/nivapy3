@@ -352,7 +352,7 @@ def adjust_lod_values(df, date_col="sample_date", agg_freq="none"):
                   sample dates
         date_col: Str. Column in 'df' containing samples dates. Only required if 'agg_freq' is
                   not 'none'
-        agg_freq: Str. One of ['none', 'A']. If 'none', the proportion of LOD values for each
+        agg_freq: Str. One of ['none', 'YE']. If 'none', the proportion of LOD values for each
                   parameter is calculated for the entire series; if 'A', the proportion is
                   calculated separately for each parameter for each year (i.e. a different
                   correction factor is calculated for each year)
@@ -361,7 +361,7 @@ def adjust_lod_values(df, date_col="sample_date", agg_freq="none"):
         Dataframe. LOQ/LOD values are adjusted according to the method described above. The
         'par_flag' columns are also removed to avoid confusion (as they no longer apply to the
         values in the dataframe).
-    """
+    """    
     df = df.copy()
 
     # Get list of chem cols
@@ -387,7 +387,7 @@ def adjust_lod_values(df, date_col="sample_date", agg_freq="none"):
             )
             df.drop([f"{par}_flag", "isnum", "islod"], inplace=True, axis="columns")
 
-        elif agg_freq == "A":
+        elif agg_freq == "YE":
             # Count number of values and LODs within each year
             df["year"] = df[date_col].dt.year
             cnt_df = df.groupby("year").sum().reset_index()
@@ -403,7 +403,7 @@ def adjust_lod_values(df, date_col="sample_date", agg_freq="none"):
             )
 
         else:
-            raise ValueError("'agg_freq' must be one of ['A', 'none'].")
+            raise ValueError("'agg_freq' must be one of ['YE', 'none'].")
 
     return df
 
@@ -546,7 +546,7 @@ def estimate_fluxes(
 
     elif method == "ospar_annual":
         assert (
-            agg_freq == "A"
+            agg_freq == "YE"
         ), "Method 'ospar_annual' can only be used to esimate annual fluxes."
 
         assert base_freq == "D", "Method 'ospar_annual' requires 'base_freq == 'D'."
@@ -559,7 +559,7 @@ def estimate_fluxes(
         raise ValueError("Calculation method not recognised.")
 
 
-def fluxes_simple_means(df, agg_freq="A"):
+def fluxes_simple_means(df, agg_freq="YE"):
     """Called by estimate_fluxes."""
     # Convert flow to volume
     n_secs = (df.index[1] - df.index[0]).total_seconds()
@@ -602,8 +602,8 @@ def fluxes_linear_interp(df):
         )
 
     # Interpolate
-    df.interpolate(kind="linear", inplace=True)
-    df.fillna(method="backfill", inplace=True)
+    df = df.interpolate(kind="linear")
+    df = df.bfill()
 
     # Convert flow to volume
     n_secs = (df.index[1] - df.index[0]).total_seconds()
@@ -633,10 +633,10 @@ def fluxes_linear_interp(df):
 
 def fluxes_log_log_linear_regression(df, plot_fold=None):
     """Called by estimate_fluxes."""
-    df2 = df.copy()
+    df = df.copy()
 
     # Convert zero => NaN
-    if np.count_nonzero(df2 == 0) > 0:
+    if np.count_nonzero(df == 0) > 0:
         print(
             "Warning: Dataframe contains zeros. These will be converted to NaN before taking logs."
         )
@@ -651,14 +651,14 @@ def fluxes_log_log_linear_regression(df, plot_fold=None):
         )
 
         # Interpolate
-        df["flow_m3/s"].interpolate(kind="linear", inplace=True)
-        df["flow_m3/s"].fillna(method="backfill", inplace=True)
+        df["flow_m3/s"] = df["flow_m3/s"].interpolate(kind="linear")
+        df["flow_m3/s"] = df["flow_m3/s"].bfill()
 
     # Get logged data (base-10)
-    df2 = np.log10(df)
+    df = np.log10(df)
 
     # Regression
-    chem_cols = list(df2.columns)
+    chem_cols = list(df.columns)
     chem_cols.remove("flow_m3/s")
 
     # Containers for results
@@ -671,7 +671,7 @@ def fluxes_log_log_linear_regression(df, plot_fold=None):
 
     for col in chem_cols:
         # OLS regression
-        res = smf.ols(formula='Q("%s") ~ Q("flow_m3/s")' % col, data=df2).fit()
+        res = smf.ols(formula='Q("%s") ~ Q("flow_m3/s")' % col, data=df).fit()
 
         if plot_fold:
             # Plot diagnotsics
@@ -700,7 +700,7 @@ def fluxes_log_log_linear_regression(df, plot_fold=None):
 
         # Calc C, inc. correction back-transformation bias. See here:
         # https://nbviewer.jupyter.org/github/JamesSample/martini/blob/master/notebooks/process_norway_chem.ipynb#3.-Concentration-discharge-relationships
-        concs = (10 ** res.params[0]) * (df["flow_m3/s"] ** res.params[1])
+        concs = (10 ** res.params.iloc[0]) * (df["flow_m3/s"] ** res.params.iloc[1])
 
         # Bias correction
         alpha = np.exp(2.651 * ((res.resid.values) ** 2).mean())
@@ -711,8 +711,8 @@ def fluxes_log_log_linear_regression(df, plot_fold=None):
 
         # Add to results
         res_dict["param"].append(col)
-        res_dict["slope"].append(res.params[1])
-        res_dict["intercept"].append(res.params[0])
+        res_dict["slope"].append(res.params.iloc[1])
+        res_dict["intercept"].append(res.params.iloc[0])
         res_dict["r_squared"].append(res.rsquared)
 
     print("Regression results:")
