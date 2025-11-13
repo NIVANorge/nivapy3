@@ -375,8 +375,7 @@ def select_resa_station_parameters(stn_df, st_dt, end_dt, engine):
     # Get stn IDs
     assert len(stn_df) > 0, "ERROR: Please select at least one station."
     if isinstance(stn_df, pd.DataFrame):
-        stn_df["station_id"].drop_duplicates(inplace=True)
-        stn_ids = stn_df["station_id"].values.astype(int).tolist()
+        stn_ids = stn_df["station_id"].drop_duplicates().astype(int).tolist()
     else:  # Should be a list
         stn_ids = list(set(stn_df))
 
@@ -498,8 +497,7 @@ def select_resa_water_chemistry(
     # Get stn IDs
     assert len(stn_df) > 0, "ERROR: Please select at least one station."
     if isinstance(stn_df, pd.DataFrame):
-        stn_df["station_id"].drop_duplicates(inplace=True)
-        stn_ids = stn_df["station_id"].values.astype(int).tolist()
+        stn_ids = stn_df["station_id"].drop_duplicates().astype(int).tolist()
     else:  # Should be a list
         stn_ids = list(set(stn_df))
 
@@ -648,8 +646,8 @@ def select_resa_water_chemistry(
 
     # Restructure data
     del df["entered_date"]
-    df["parameter_name"].fillna("", inplace=True)
-    df["unit"].fillna("", inplace=True)
+    df["parameter_name"] = df["parameter_name"].fillna("")
+    df["unit"] = df["unit"].fillna("")
     df["par_unit"] = df["parameter_name"].astype(str) + "_" + df["unit"].astype(str)
     del df["parameter_name"], df["unit"]
 

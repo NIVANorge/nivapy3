@@ -9,6 +9,8 @@ from pathlib import Path
 
 os.environ["KMP_WARNINGS"] = "off"  # Prevents confusing warning linked to PySheds
 
+from functools import reduce
+
 import cartopy
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -21,16 +23,15 @@ import numpy as np
 import pandas as pd
 import pyproj
 import rasterio
-import rasterio.mask
 import rioxarray as rio
 import xarray as xr
 from folium import Choropleth
 from folium.plugins import FastMarkerCluster, MarkerCluster
-from functools import reduce
 from osgeo import gdal, ogr, osr
 from osgeo.gdalconst import GA_ReadOnly
 from pyresample.geometry import AreaDefinition
 from rasterio import features
+from rasterio.mask import mask
 from rasterstats import zonal_stats
 from scipy import ndimage
 from scipy.interpolate import griddata
@@ -802,56 +803,56 @@ def interp_idw(pts, z, gridx, gridy, n_near=8, p=1):
 class Invdisttree:
     """The code for this class is taken from:
 
-        http://stackoverflow.com/questions/3104781/inverse-distance-weighted-idw-interpolation-with-python
+            http://stackoverflow.com/questions/3104781/inverse-distance-weighted-idw-interpolation-with-python
 
-        inverse-distance-weighted interpolation using KDTree.
+            inverse-distance-weighted interpolation using KDTree.
 
-        invdisttree = Invdisttree( X, z )  -- data points, values
-        interpol = invdisttree( q, nnear=3, eps=0, p=1, weights=None, stat=0 )
+            invdisttree = Invdisttree( X, z )  -- data points, values
+            interpol = invdisttree( q, nnear=3, eps=0, p=1, weights=None, stat=0 )
 
-        interpolates z from the 3 points nearest each query point q;
-        For example, interpol[ a query point q ]
-        finds the 3 data points nearest q, at distances d1 d2 d3
-        and returns the IDW average of the values z1 z2 z3
-            (z1/d1 + z2/d2 + z3/d3)
-            / (1/d1 + 1/d2 + 1/d3)
-            = .55 z1 + .27 z2 + .18 z3  for distances 1 2 3
+            interpolates z from the 3 points nearest each query point q;
+            For example, interpol[ a query point q ]
+            finds the 3 data points nearest q, at distances d1 d2 d3
+            and returns the IDW average of the values z1 z2 z3
+                (z1/d1 + z2/d2 + z3/d3)
+                / (1/d1 + 1/d2 + 1/d3)
+                = .55 z1 + .27 z2 + .18 z3  for distances 1 2 3
 
-        q may be one point, or a batch of points.
-        eps: approximate nearest, dist <= (1 + eps) * true nearest
-        p: use 1 / distance**p
-        weights: optional multipliers for 1 / distance**p, of the same shape as q
-        stat: accumulate wsum, wn for average weights
+            q may be one point, or a batch of points.
+            eps: approximate nearest, dist <= (1 + eps) * true nearest
+            p: use 1 / distance**p
+            weights: optional multipliers for 1 / distance**p, of the same shape as q
+            stat: accumulate wsum, wn for average weights
 
     How many nearest neighbors should one take ?
-        a) start with 8 11 14 .. 28 in 2d 3d 4d .. 10d; see Wendel's formula
-        b) make 3 runs with nnear= e.g. 6 8 10, and look at the results --
-            |interpol 6 - interpol 8| etc., or |f - interpol*| if you have f(q).
-            I find that runtimes don't increase much at all with nnear -- ymmv.
+            a) start with 8 11 14 .. 28 in 2d 3d 4d .. 10d; see Wendel's formula
+            b) make 3 runs with nnear= e.g. 6 8 10, and look at the results --
+                |interpol 6 - interpol 8| etc., or |f - interpol*| if you have f(q).
+                I find that runtimes don't increase much at all with nnear -- ymmv.
 
     p=1, p=2 ?
-            p=2 weights nearer points more, farther points less.
-            In 2d, the circles around query points have areas ~ distance**2,
-            so p=2 is inverse-area weighting. For example,
-                (z1/area1 + z2/area2 + z3/area3)
-                / (1/area1 + 1/area2 + 1/area3)
-                = .74 z1 + .18 z2 + .08 z3  for distances 1 2 3
-            Similarly, in 3d, p=3 is inverse-volume weighting.
+                p=2 weights nearer points more, farther points less.
+                In 2d, the circles around query points have areas ~ distance**2,
+                so p=2 is inverse-area weighting. For example,
+                    (z1/area1 + z2/area2 + z3/area3)
+                    / (1/area1 + 1/area2 + 1/area3)
+                    = .74 z1 + .18 z2 + .08 z3  for distances 1 2 3
+                Similarly, in 3d, p=3 is inverse-volume weighting.
 
-        Scaling:
-            if different X coordinates measure different things, Euclidean distance
-            can be way off.  For example, if X0 is in the range 0 to 1
-            but X1 0 to 1000, the X1 distances will swamp X0;
-            rescale the data, i.e. make X0.std() ~= X1.std().
+            Scaling:
+                if different X coordinates measure different things, Euclidean distance
+                can be way off.  For example, if X0 is in the range 0 to 1
+                but X1 0 to 1000, the X1 distances will swamp X0;
+                rescale the data, i.e. make X0.std() ~= X1.std().
 
-        A nice property of IDW is that it's scale-free around query points:
-        if I have values z1 z2 z3 from 3 points at distances d1 d2 d3,
-        the IDW average
-            (z1/d1 + z2/d2 + z3/d3)
-            / (1/d1 + 1/d2 + 1/d3)
-        is the same for distances 1 2 3, or 10 20 30 -- only the ratios matter.
-        In contrast, the commonly-used Gaussian kernel exp( - (distance/h)**2 )
-        is exceedingly sensitive to distance and to h.
+            A nice property of IDW is that it's scale-free around query points:
+            if I have values z1 z2 z3 from 3 points at distances d1 d2 d3,
+            the IDW average
+                (z1/d1 + z2/d2 + z3/d3)
+                / (1/d1 + 1/d2 + 1/d3)
+            is the same for distances 1 2 3, or 10 20 30 -- only the ratios matter.
+            In contrast, the commonly-used Gaussian kernel exp( - (distance/h)**2 )
+            is exceedingly sensitive to distance and to h.
     """
 
     def __init__(self, X, z, leafsize=10, stat=0):
@@ -1659,114 +1660,116 @@ def get_natural_earth_country_names():
     return country_list
 
 
-def get_features(gdf):
-    """Helper function for clip_raster_to_gdf(). Converts 'gdf' to the format required
-    by rasterio.mask.
-
-    Args:
-        gdf: Geodataframe. Must be of (multi-)polygon geometry type
-
-    Returns:
-        List of geometries.
+def clip_raster_to_bounding_box(
+    raster_path: str, out_gtiff: str, bounding_box: tuple[float, float, float, float]
+) -> None:
     """
-    return [json.loads(gdf.to_json())["features"][0]["geometry"]]
+    Clip a raster dataset to a bounding box and save the result as a new GeoTIFF.
 
+    Args
+        raster_path (str): Path to input raster dataset.
+        out_gtiff (str): Path for the output GeoTIFF. Must end with '.tif'.
+        bounding_box (tuple): (xmin, ymin, xmax, ymax) in the same coordinate system as
+            the raster.
 
-def clip_raster_to_bounding_box(raster_path, out_gtiff, bounding_box):
-    """Clip a raster dataset to a bounding box and save the result
-       as a new GeoTiff.
-
-    Args:
-        raster_path:  Str. Path to input raster dataset
-        out_gtiff:    Str. Name and path of GeoTiff to be created. Should have a '.tif'
-                      file extension
-        bounding_box: Tuple. (xmin, ymin, xmax, ymax) in the same co-ordinate system as
-                      'raster_path'
-
-    Returns:
-        None. The new raster is saved to the specified location.
+    Raises
+        ValueError: If input paths or bounding box format are invalid.
     """
-    # Read raster
-    ras = rasterio.open(raster_path)
-    crs = ras.crs
+    # Validate inputs
+    if not os.path.isfile(raster_path):
+        raise ValueError(f"Raster file not found: {raster_path}")
+    if not out_gtiff.lower().endswith(".tif"):
+        raise ValueError("Output file must have a '.tif' extension.")
+    if not (isinstance(bounding_box, tuple) and len(bounding_box) == 4):
+        raise ValueError("'bounding_box' must be a tuple of (xmin, ymin, xmax, ymax).")
 
-    bbox = box(*bounding_box)
-    clip_gdf = gpd.GeoDataFrame({"geometry": bbox}, index=[0], crs=crs)
+    # Open raster
+    with rasterio.open(raster_path) as src:
+        crs = src.crs
 
-    # Apply mask
-    shapes = get_features(clip_gdf)
-    out_image, out_transform = rasterio.mask.mask(ras, shapes, crop=True)
-    out_meta = ras.meta
-    out_meta.update(
-        {
-            "driver": "GTiff",
-            "height": out_image.shape[1],
-            "width": out_image.shape[2],
-            "transform": out_transform,
-        }
-    )
+        # Create GeoDataFrame for bounding box
+        bbox_geom = box(*bounding_box)
+        clip_gdf = gpd.GeoDataFrame({"geometry": [bbox_geom]}, crs=crs)
 
-    # Save result
-    with rasterio.open(out_gtiff, "w", **out_meta) as dest:
-        dest.write(out_image)
+        # Extract shapes to mask
+        shapes = [geom for geom in clip_gdf.geometry]
 
-    ras.close()
+        # Apply mask
+        out_image, out_transform = mask(src, shapes, crop=True)
+        out_meta = src.meta.copy()
+        out_meta.update(
+            {
+                "driver": "GTiff",
+                "height": out_image.shape[1],
+                "width": out_image.shape[2],
+                "transform": out_transform,
+            }
+        )
+
+        # Save clipped raster
+        with rasterio.open(out_gtiff, "w", **out_meta) as dest:
+            dest.write(out_image)
 
 
-def clip_raster_to_gdf(raster_path, out_gtiff, clip_gdf, bounding_box=False):
-    """Clip a raster dataset to a (multi-)polygon geodataframe and save the result
-    as a new GeoTiff.
+def clip_raster_to_gdf(
+    raster_path: str,
+    out_gtiff: str,
+    clip_gdf: gpd.GeoDataFrame,
+    bounding_box: bool = False,
+) -> None:
+    """Clip a raster dataset to a (multi-)polygon GeoDataFrame and save the result as a
+    new GeoTIFF.
 
-    Args:
-        raster_path:  Str. Path to input raster dataset
-        out_gtiff:    Str. Name and path of GeoTiff to be created. Should have a '.tif'
-                      file extension
-        clip_gdf:     Geodataframe. Shape to clip to. Must be of (multi-)polygon geometry
-                      type
-        bounding_box: Bool. If True, use the bounding box of all features in 'clip_gdf'
-                      instead of the features themselves
+    Args
+        raster_path (str): Path to input raster dataset.
+        out_gtiff (str): Path for the output GeoTIFF. Must end with '.tif'.
+        clip_gdf (GeoDataFrame): GeoDataFrame with (Multi-)Polygon geometry.
+        bounding_box (bool): If True, use the bounding box of all features in 'clip_gdf'
+            instead of the features themselves.
 
-    Returns:
-        None. The new raster is saved to the specified location.
+    Raises:
+        ValueError: If input paths or geometry types are invalid.
     """
-    assert isinstance(
-        clip_gdf, gpd.GeoDataFrame
-    ), "'clip' must be a (Multi-)Polygon geodataframe."
+    # Validate inputs
+    if not os.path.isfile(raster_path):
+        raise ValueError(f"Raster file not found: {raster_path}")
+    if not out_gtiff.lower().endswith(".tif"):
+        raise ValueError("Output file must have a '.tif' extension.")
+    if not isinstance(clip_gdf, gpd.GeoDataFrame):
+        raise ValueError("'clip_gdf' must be a GeoDataFrame.")
+    if not all(clip_gdf.geometry.type.isin(["Polygon", "MultiPolygon"])):
+        raise ValueError(
+            "GeoDataFrame must contain Polygon or MultiPolygon geometries."
+        )
 
-    clip_gdf = clip_gdf.copy()
+    # Open raster
+    with rasterio.open(raster_path) as src:
+        # Reproject clip_gdf if different from raster
+        if clip_gdf.crs != src.crs:
+            clip_gdf = clip_gdf.to_crs(src.crs)
 
-    # Read raster
-    ras = rasterio.open(raster_path)
+        if bounding_box:
+            bbox = box(*clip_gdf.total_bounds)
+            clip_gdf = gpd.GeoDataFrame({"geometry": [bbox]}, crs=clip_gdf.crs)
 
-    # Reproject if necessary
-    if clip_gdf.crs != ras.crs.data:
-        print("WARNING: The projection of 'clip' differs from the target dataset.")
-        print("Converting to the projection of target dataset (%s)" % ras.crs.data)
-        clip_gdf.to_crs(crs=ras.crs.data, inplace=True)
+        # Extract shapes to mask
+        shapes = [geom for geom in clip_gdf.geometry]
 
-    if bounding_box:
-        xmin, ymin, xmax, ymax = clip_gdf.bounds.values[0]
-        bbox = box(xmin, ymin, xmax, ymax)
-        clip_gdf = gpd.GeoDataFrame({"geometry": bbox}, index=[0], crs=clip_gdf.crs)
+        # Apply mask
+        out_image, out_transform = mask(src, shapes, crop=True)
+        out_meta = src.meta.copy()
+        out_meta.update(
+            {
+                "driver": "GTiff",
+                "height": out_image.shape[1],
+                "width": out_image.shape[2],
+                "transform": out_transform,
+            }
+        )
 
-    # Apply mask
-    shapes = get_features(clip_gdf)
-    out_image, out_transform = rasterio.mask.mask(ras, shapes, crop=True)
-    out_meta = ras.meta
-    out_meta.update(
-        {
-            "driver": "GTiff",
-            "height": out_image.shape[1],
-            "width": out_image.shape[2],
-            "transform": out_transform,
-        }
-    )
-
-    # Save result
-    with rasterio.open(out_gtiff, "w", **out_meta) as dest:
-        dest.write(out_image)
-
-    ras.close()
+        # Save clipped raster
+        with rasterio.open(out_gtiff, "w", **out_meta) as dest:
+            dest.write(out_image)
 
 
 def catchment_boundary_quickmap(stn_code, cat_gdf, title=None, out_png=None):
