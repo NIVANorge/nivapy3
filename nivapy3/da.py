@@ -1913,6 +1913,8 @@ def get_nve_gts_api_aggregated_time_series(
     st_dt,
     end_dt,
     id_col="station_code",
+    n_samp=None,
+    random_state=None,
 ):
     """Get time series for the parameters and time period of interest, aggregated over the
     polygons in 'poly_gdf'. Data comes from NVE's GridTimeSeries API
@@ -1920,26 +1922,35 @@ def get_nve_gts_api_aggregated_time_series(
 
     Args
         poly_gdf: Geodataframe. Polygons of interest. Make sure the CRS is set and valid.
-        pars:     Dataframe or list. If dataframe, must be in the format returned by
-                  get_nve_gts_api_parameters(), filtered to the parameters of interest.
-                  If list, must be a list of 'str' matching valid parameter names in
-                  the 'Name' columne retruned by get_nve_gts_api_parameters()
-        st_dt:    Str. Start date of interest 'YYYY-MM-DD'
-        end_dt:   Str. End date of interest 'YYYY-MM-DD'
-        id_col:   Str. Name of column in 'poly_gdf' containing a unique ID for each polygon
-                  of interest
+        pars: Dataframe or list. If dataframe, must be in the format returned by
+            get_nve_gts_api_parameters(), filtered to the parameters of interest. If list,
+            must be a list of 'str' matching valid parameter names in the 'Name' column
+            returned by get_nve_gts_api_parameters()
+        st_dt: Str. Start date of interest 'YYYY-MM-DD'
+        end_dt: Str. End date of interest 'YYYY-MM-DD'
+        id_col: Str. Name of column in 'poly_gdf' containing a unique ID for each polygon
+            of interest
+        n_samp: Int or None. Number of points to sample per polygon. If None, get data for
+            all grid cells within the polygon and calculate summary statistics based on the
+            full dataset. Requires one API call per grid cell, which can be slow for large
+            catchments. If Int and the number of 1 km2 grid cells within the polygon is
+            larger than the value specified, 'n_samp' grid cells within the polygon are
+            selected at random and summary statistics are based on the sample, instead of
+            all values. If the total number of cells is less than or equal to 'n_samp', all
+            points will be used (i.e. same behaviour as 'None').
+        random_state: Int or None. Used for random sampling when 'n_samp' is not None.
 
     Returns
         Dataframe of aggregated time series data for each polygon.
     """
     # Validate user input
-    assert len(poly_gdf[id_col].unique()) == len(
-        poly_gdf
-    ), "ERROR: 'id_col' is not unique."
+    if len(poly_gdf[id_col].unique()) != len(poly_gdf):
+        raise ValueError("ERROR: 'id_col' is not unique.")
 
-    assert dt.datetime.strptime(st_dt, "%Y-%m-%d") < dt.datetime.strptime(
+    if dt.datetime.strptime(st_dt, "%Y-%m-%d") > dt.datetime.strptime(
         end_dt, "%Y-%m-%d"
-    ), "'st_dt' must be before 'end_dt' (format 'YYYY-MM-DD')."
+    ):
+        raise ValueError("'st_dt' must be before 'end_dt' (format 'YYYY-MM-DD').")
 
     par_df = get_nve_gts_api_parameters()
     if isinstance(pars, pd.DataFrame):
@@ -1961,8 +1972,18 @@ def get_nve_gts_api_aggregated_time_series(
     )
 
     # Get just points within polys
-    pt_gdf = gpd.sjoin(pt_gdf, poly_gdf, predicate="intersects")
+    pt_gdf = gpd.sjoin(pt_gdf, poly_gdf, predicate="intersects", how="inner")
     pt_df = pd.DataFrame(pt_gdf[[id_col, "point_id", "x", "y"]])
+
+    # Select 'n_samp' points per site, if desired
+    if n_samp:
+        pt_df = pt_df.groupby(id_col, group_keys=False).apply(
+            lambda g: (
+                g
+                if len(g) <= n_samp
+                else g.sample(n_samp, replace=False, random_state=random_state)
+            )
+        )
 
     # Get data for points from API
     res_df = get_nve_gts_api_time_series(
