@@ -961,7 +961,106 @@ def double_mad_from_median(data, thresh=3.5):
     return modified_z_score > thresh
 
 
-def target_plot(mod, obs, ax=None, title=None):
+def nse(mod, obs):
+    """Compute Nash–Sutcliffe Efficiency (NSE).
+
+    NSE evaluates how well the model predictions match observations
+    compared to using the mean of observations as a predictor.
+
+    Args
+        mod (array-like): Modelled values
+        obs (array-like): Observed values
+
+    Returns
+        float: NSE value (1 = perfect, 0 = mean of obs, <0 = worse than mean)
+    """
+    mask = pd.Series(mod).notna() & pd.Series(obs).notna()
+    mod = np.asarray(mod)[mask]
+    obs = np.asarray(obs)[mask]
+
+    return 1 - np.sum((obs - mod) ** 2) / np.sum((obs - obs.mean()) ** 2)
+
+
+def kge(mod, obs):
+    """Compute Kling–Gupta Efficiency (KGE).
+
+    KGE combines correlation, variability ratio, and bias ratio into
+    a single efficiency metric.
+
+    Args
+        mod (array-like): Modelled values
+        obs (array-like): Observed values
+
+    Returns
+        float: KGE value (1 = perfect)
+    """
+    mask = pd.Series(mod).notna() & pd.Series(obs).notna()
+    mod = np.asarray(mod)[mask]
+    obs = np.asarray(obs)[mask]
+
+    r = np.corrcoef(mod, obs)[0, 1]
+    alpha = mod.std() / obs.std()
+    beta = mod.mean() / obs.mean()
+
+    return 1 - np.sqrt((r - 1) ** 2 + (alpha - 1) ** 2 + (beta - 1) ** 2)
+
+
+def bias(mod, obs, norm=False):
+    """Compute model bias.
+
+    Args
+        mod (array-like): Modelled values
+        obs (array-like): Observed values
+        norm (bool): If True, returns normalised bias (scaled by obs std).
+                     If False, returns relative bias.
+
+    Returns
+        float: Bias value
+    """
+    mask = pd.Series(mod).notna() & pd.Series(obs).notna()
+    mod = np.asarray(mod)[mask]
+    obs = np.asarray(obs)[mask]
+
+    if norm:
+        return (mod.mean() - obs.mean()) / obs.std()
+
+    return (mod.sum() - obs.sum()) / obs.sum()
+
+
+def unbiased_rmsd(mod, obs, norm=False):
+    """Compute unbiased root mean square deviation (RMSD).
+
+    This measures differences in variability and correlation, excluding bias.
+    The sign indicates whether model variability is larger or smaller than observed.
+
+    Args
+        mod (array-like): Modelled values
+        obs (array-like): Observed values
+        norm (bool): If True, returns normalised RMSD.
+                     If False, returns RMSD scaled to original units.
+
+    Returns
+        float: Unbiased RMSD value
+    """
+    mask = pd.Series(mod).notna() & pd.Series(obs).notna()
+    mod = np.asarray(mod)[mask]
+    obs = np.asarray(obs)[mask]
+
+    r = np.corrcoef(mod, obs)[0, 1]
+    alpha = mod.std() / obs.std()
+
+    val = np.sqrt(1 + alpha**2 - 2 * alpha * r)
+
+    # Assign sign based on variability difference
+    val = np.copysign(val, mod.std() - obs.std())
+
+    if norm:
+        return val
+
+    return val * obs.std()
+
+
+def target_plot(df, mod_col, obs_col, group_col=None, ax=None, title=None):
     """Target plot comparing normalised bias and normalised, unbiased RMSD between two
         datasets (usually modelled versus observed). Based on code written by Leah
         Jackson-Blake for the REFRESH project and described in the REFRESH report as
@@ -980,63 +1079,108 @@ def target_plot(mod, obs, ax=None, title=None):
 
             https://www.sciencedirect.com/science/article/pii/S0924796308001140
 
-    Args:
-        mod:   Array-like. 1D array or list of modelled values
-        obs:   Array-like. 1D array or list of observed/reference values
-        ax:    Matplotlib axis or None. Optional. Axis on which to plot, if desired
-        title: Str. Optional. Title for plot
+    Args
+        df (pd.DataFrame): Input dataframe containing model and observation columns
+        mod_col (str): Name of column with modelled values
+        obs_col (str): Name of column with observed values
+        group_col (str, optional): Column to group by (e.g. station_id).
+                                   If provided, one point per group is plotted.
+        ax (matplotlib axis, optional): Axis to plot on. Created if None.
+        title (str, optional): Plot title
 
-    Returns:
-        Tuple (normalised_bias, normalised_unbiased_rmsd). Plot is created.
+    Returns
+        matplotlib axis: Axis with the target plot
     """
-    assert len(mod) == len(obs), "'mod' and 'obs' must be the same length."
-
-    # Convert to dataframe
-    df = pd.DataFrame(
-        {
-            "mod": np.array(mod),
-            "obs": np.array(obs),
-        }
-    )
-
-    # Drop null
-    if df.isna().sum().sum() > 0:
-        print("Dataset contains some NaN values. These will be ignored.")
-        df.dropna(how="any", inplace=True)
-
-    mod = df["mod"].values
-    obs = df["obs"].values
-
-    # Calculate stats.
-    normed_bias = (mod.mean() - obs.mean()) / obs.std()
-    pearson_cc, pearson_p = pearsonr(mod, obs)
-    normed_std_dev = mod.std() / obs.std()
-    normed_unbiased_rmsd = (
-        1.0 + normed_std_dev**2 - (2 * normed_std_dev * pearson_cc)
-    ) ** 0.5
-    normed_unbiased_rmsd = np.copysign(normed_unbiased_rmsd, mod.std() - obs.std())
-
-    # Setup plot
     if ax is None:
-        fig = plt.figure(figsize=(5, 5))
-        ax = fig.add_subplot(111, aspect="equal")
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.set_aspect("equal")
 
-    inner_circle = plt.Circle((0, 0), 0.7, edgecolor="k", ls="--", lw=1, fill=False)
-    ax.add_artist(inner_circle)
+    if group_col:
+        groups = df.groupby(group_col)
+    else:
+        groups = [("All data", df)]
 
-    outer_circle = plt.Circle((0, 0), 1, edgecolor="k", ls="-", lw=1, fill=False)
-    ax.add_artist(outer_circle)
+    for name, g in groups:
+        mod = g[mod_col]
+        obs = g[obs_col]
 
-    vline = ax.vlines(0, -2, 2)
-    hline = ax.hlines(0, -2, 2)
+        mask = mod.notna() & obs.notna()
+        mod = mod[mask]
+        obs = obs[mask]
 
-    # Add labels and titles
+        if len(mod) == 0:
+            continue
+
+        nbias = bias(mod, obs, norm=True)
+        nurmsd = unbiased_rmsd(mod, obs, norm=True)
+
+        ax.plot(nurmsd, nbias, "o", label=str(name), markersize=10, markeredgecolor="k")
+
+    # Reference circles
+    ax.add_artist(plt.Circle((0, 0), 0.7, edgecolor="k", ls="--", lw=1, fill=False))
+    ax.add_artist(plt.Circle((0, 0), 1.0, edgecolor="k", ls="-", lw=1, fill=False))
+
+    # Axes
+    ax.axhline(0, color="k", lw=0.8)
+    ax.axvline(0, color="k", lw=0.8)
+
     ax.set_xlabel("Normalised, unbiased RMSD")
     ax.set_ylabel("Normalised bias")
+
     if title:
         ax.set_title(title)
 
-    # Plot data
-    ax.plot(normed_unbiased_rmsd, normed_bias, "ro", markersize=10, markeredgecolor="k")
+    if group_col:
+        ax.legend()
 
-    return (normed_bias, normed_unbiased_rmsd)
+    ax.set_xlim(-2, 2)
+    ax.set_ylim(-2, 2)
+
+    return ax
+
+
+def performance_summary(df, mod_col, obs_col, group_col=None):
+    """Compute NSE, KGE, bias, and unbiased RMSD summary statistics.
+
+    Args
+        df (pd.DataFrame): Input dataframe
+        mod_col (str): Model column
+        obs_col (str): Observation column
+        group_col (str, optional): Column to group by
+
+    Returns
+        pd.DataFrame: Summary metrics
+    """
+
+    results = []
+
+    if group_col:
+        groups = df.groupby(group_col)
+    else:
+        groups = [("All data", df)]
+
+    for name, g in groups:
+        mod = g[mod_col]
+        obs = g[obs_col]
+
+        mask = mod.notna() & obs.notna()
+        mod = mod[mask]
+        obs = obs[mask]
+
+        if len(mod) == 0:
+            continue
+
+        results.append(
+            {
+                group_col if group_col else "group": name,
+                "NSE": nse(mod, obs),
+                "KGE": kge(mod, obs),
+                "Bias": bias(mod, obs, norm=False),
+                "Norm_Bias": bias(mod, obs, norm=True),
+                "RMSD": unbiased_rmsd(mod, obs, norm=False),
+                "Norm_RMSD": unbiased_rmsd(mod, obs, norm=True),
+                "n": len(mod),
+            }
+        )
+
+    return pd.DataFrame(results)

@@ -653,7 +653,7 @@ def select_resa_water_chemistry(
 
     # Include LOD flags?
     if lod_flags:
-        df["flag1"].fillna("", inplace=True)
+        df["flag1"] = df["flag1"].fillna("")
         df["value"] = df["flag1"].astype(str) + df["value"].astype(str)
         del df["flag1"]
 
@@ -2690,14 +2690,13 @@ def get_era5land_cds_api_aggregated_time_series(
     )
     res_df.index.name = ""
     res_df.columns = ["_".join(i) for i in res_df.columns.to_flat_index()]
-    res_df.rename(
+    res_df = res_df.rename(
         {
             f"{id_col}_": id_col,
             "datetime_": "datetime",
             "par_": "par",
         },
         axis="columns",
-        inplace=True,
     )
     res_df = res_df[
         [
